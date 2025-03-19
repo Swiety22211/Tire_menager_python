@@ -28,6 +28,7 @@ from utils.paths import ICONS_DIR, APP_DATA_DIR, DATABASE_PATH, BACKUP_DIR, reso
 from utils.database import backup_database, restore_database, initialize_test_data
 from utils.exporter import export_data_to_excel, export_data_to_pdf, export_data_to_csv
 from utils.styles import STYLE_SHEET
+from ui.tabs.clients_tab import ClientsTab
 
 # Logger
 logger = logging.getLogger("TireDepositManager")
@@ -181,7 +182,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.deposits_tab, QIcon(os.path.join(ICONS_DIR, "tire.png")), "Depozyty")
         
         # Zakładka klientów
-        self.clients_tab = QWidget()  # Placeholder - powinno być ClientsTab(self.conn)
+        self.clients_tab = ClientsTab(self.conn)  # ZAIMPLEMENTOWANA KARTA ZAKLADKI
         self.tabs.addTab(self.clients_tab, QIcon(os.path.join(ICONS_DIR, "client.png")), "Klienci")
         
         # Zakładka zamówień

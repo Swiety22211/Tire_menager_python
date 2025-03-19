@@ -426,8 +426,6 @@ def export_data_to_pdf(conn, file_path, data_type, columns=None, template=None):
             logger.warning(f"Brak danych do eksportu typu: {data_type}")
             return 0
         
-        # Pobierz style dla dokumentu
-        styles = getSampleStyleSheet()
 
         # Dodaj własny styl nagłówka
         header_style = ParagraphStyle(

@@ -11,10 +11,10 @@ from enum import Enum
 
 from PySide6.QtWidgets import (
     QWidget, QLabel, QHBoxLayout, QVBoxLayout, QGraphicsDropShadowEffect,
-    QGridLayout, QApplication
+    QApplication, QFrame
 )
-from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRect
-from PySide6.QtGui import QColor, QFont, QIcon
+from PySide6.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QRect, QPoint
+from PySide6.QtGui import QColor, QFont, QIcon, QScreen, QPixmap
 
 from utils.paths import ICONS_DIR
 
@@ -28,7 +28,7 @@ class NotificationTypes(Enum):
     WARNING = 2
     ERROR = 3
 
-class NotificationWidget(QWidget):
+class NotificationWidget(QFrame):
     """Widget powiadomienia wyświetlanego w rogu ekranu."""
     
     def __init__(self, message, notification_type, parent=None, duration=5000):
@@ -41,18 +41,15 @@ class NotificationWidget(QWidget):
             parent (QWidget, optional): Widget rodzica. Domyślnie None.
             duration (int, optional): Czas wyświetlania w milisekundach. Domyślnie 5000.
         """
-        super().__init__(parent)
+        super().__init__(parent, Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
         
         self.message = message
         self.notification_type = notification_type
         self.duration = duration
         
-        # Ustawienie flagi okna narzędziowego bez ramki
-        self.setWindowFlags(Qt.ToolTip | Qt.FramelessWindowHint)
-        # Ustawienie przezroczystego tła
+        # Ustawienia widgetu
         self.setAttribute(Qt.WA_TranslucentBackground)
-        # Zapobieganie focusowi
-        self.setAttribute(Qt.WA_ShowWithoutActivating)
+        self.setWindowModality(Qt.NonModal)
         
         # Inicjalizacja interfejsu użytkownika
         self.init_ui()
@@ -62,9 +59,6 @@ class NotificationWidget(QWidget):
         self.timer.setSingleShot(True)
         self.timer.timeout.connect(self.close_animation)
         self.timer.start(duration)
-        
-        # Animacja pokazywania
-        self.show_animation()
     
     def init_ui(self):
         """Inicjalizacja interfejsu użytkownika powiadomienia."""
@@ -87,23 +81,26 @@ class NotificationWidget(QWidget):
         
         # Ustawienie StyleSheet
         self.setStyleSheet(f"""
-            QWidget {{
+            QFrame {{
                 background-color: {background_color};
                 color: white;
                 border-radius: 5px;
                 border: 1px solid rgba(0, 0, 0, 0.1);
+                padding: 10px;
             }}
         """)
         
         # Układy
         main_layout = QHBoxLayout(self)
-        main_layout.setContentsMargins(15, 10, 15, 10)
+        main_layout.setContentsMargins(0, 0, 0, 0)
         
         # Ikona
         icon_label = QLabel()
         if os.path.exists(icon_path):
-            icon = QIcon(icon_path)
-            icon_label.setPixmap(icon.pixmap(24, 24))
+            pixmap = QPixmap(icon_path).scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            icon_label.setPixmap(pixmap)
+            icon_label.setFixedSize(32, 32)
+            icon_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(icon_label)
         
         # Treść
@@ -119,40 +116,53 @@ class NotificationWidget(QWidget):
         shadow.setOffset(0, 2)
         self.setGraphicsEffect(shadow)
         
-        # Ustawienie maksymalnej szerokości
-        self.setMaximumWidth(400)
+        # Ustaw maksymalną szerokość
+        self.setMaximumWidth(300)
         self.adjustSize()
     
     def show_animation(self):
         """Animacja pokazywania powiadomienia."""
-        # Pozycja początkowa (poza ekranem)
-        start_pos = self.pos()
-        # Pozycja końcowa (w rogu ekranu)
-        end_pos = self.pos()
+        screen = QApplication.primaryScreen()
+        screen_geometry = screen.geometry()
+        
+        # Pozycja końcowa
+        pos_x = screen_geometry.width() - self.width() - 20
+        pos_y = 20
+        
+        # Ustaw pozycję początkową poza ekranem
+        self.move(pos_x, -self.height())
         
         # Animacja przesunięcia
-        self.anim = QPropertyAnimation(self, b"geometry")
-        self.anim.setDuration(300)
-        self.anim.setStartValue(QRect(start_pos.x(), start_pos.y() - 50, self.width(), self.height()))
-        self.anim.setEndValue(QRect(end_pos.x(), end_pos.y(), self.width(), self.height()))
-        self.anim.setEasingCurve(QEasingCurve.OutCubic)
-        self.anim.start()
+        self.show()
+        anim = QPropertyAnimation(self, b"pos")
+        anim.setDuration(300)
+        anim.setStartValue(QPoint(pos_x, -self.height()))
+        anim.setEndValue(QPoint(pos_x, pos_y))
+        anim.setEasingCurve(QEasingCurve.OutCubic)
+        anim.start()
     
     def close_animation(self):
         """Animacja zamykania powiadomienia."""
-        # Pozycja początkowa (aktualna)
-        start_pos = self.pos()
-        # Pozycja końcowa (poza ekranem w prawo)
-        end_pos = QApplication.instance().desktop().availableGeometry().topRight()
+        screen = QApplication.primaryScreen()
+        screen_geometry = screen.geometry()
+        
+        # Pozycja końcowa poza ekranem
+        pos_x = screen_geometry.width()
+        pos_y = self.pos().y()
         
         # Animacja przesunięcia
-        self.anim = QPropertyAnimation(self, b"geometry")
-        self.anim.setDuration(300)
-        self.anim.setStartValue(QRect(start_pos.x(), start_pos.y(), self.width(), self.height()))
-        self.anim.setEndValue(QRect(end_pos.x(), start_pos.y(), self.width(), self.height()))
-        self.anim.setEasingCurve(QEasingCurve.InCubic)
-        self.anim.finished.connect(self.close)
-        self.anim.start()
+        anim = QPropertyAnimation(self, b"pos")
+        anim.setDuration(300)
+        anim.setStartValue(self.pos())
+        anim.setEndValue(QPoint(pos_x, pos_y))
+        anim.setEasingCurve(QEasingCurve.InCubic)
+        anim.finished.connect(self.close)
+        anim.start()
+    
+    def show(self):
+        """Przesłonięcie metody show z animacją."""
+        super().show()
+        self.show_animation()
 
 class NotificationManager:
     """
@@ -221,9 +231,6 @@ class NotificationManager:
             # Pozycjonowanie powiadomienia
             self.position_notification(notification)
             
-            # Wyświetlenie powiadomienia
-            notification.show()
-            
             # Usunięcie powiadomienia z listy po zamknięciu
             notification.destroyed.connect(lambda: self.remove_notification(notification))
             
@@ -237,8 +244,9 @@ class NotificationManager:
         Args:
             notification (NotificationWidget): Widget powiadomienia do pozycjonowania
         """
-        # Pobierz dostępną geometrię ekranu
-        screen_geometry = QApplication.instance().desktop().availableGeometry()
+        # Pobierz aktualny ekran
+        screen = QApplication.primaryScreen()
+        screen_geometry = screen.geometry()
         
         # Oblicz pozycję początkową (prawy górny róg)
         pos_x = screen_geometry.width() - notification.width() - 20
@@ -266,7 +274,9 @@ class NotificationManager:
             # Przeorganizuj pozycje pozostałych powiadomień
             for i, n in enumerate(self.notifications):
                 if n.isVisible():
-                    screen_geometry = QApplication.instance().desktop().availableGeometry()
+                    screen = QApplication.primaryScreen()
+                    screen_geometry = screen.geometry()
+                    
                     pos_x = screen_geometry.width() - n.width() - 20
                     pos_y = 20
                     
@@ -276,9 +286,9 @@ class NotificationManager:
                             pos_y += self.notifications[j].height() + 10
                     
                     # Animacja przesunięcia
-                    anim = QPropertyAnimation(n, b"geometry")
+                    anim = QPropertyAnimation(n, b"pos")
                     anim.setDuration(300)
-                    anim.setStartValue(QRect(n.pos().x(), n.pos().y(), n.width(), n.height()))
-                    anim.setEndValue(QRect(pos_x, pos_y, n.width(), n.height()))
+                    anim.setStartValue(n.pos())
+                    anim.setEndValue(QPoint(pos_x, pos_y))
                     anim.setEasingCurve(QEasingCurve.OutCubic)
                     anim.start()
