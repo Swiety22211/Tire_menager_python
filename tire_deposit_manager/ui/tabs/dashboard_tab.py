@@ -3,7 +3,7 @@
 
 """
 Zakładka pulpitu - główny ekran aplikacji z podsumowaniem kluczowych informacji.
-Zmodernizowana wersja z rozbudowaną funkcjonalnością i ulepszonym interfejsem.
+Wyświetla statystyki, wykresy i zapewnia szybki dostęp do najważniejszych funkcji.
 """
 
 import os
@@ -14,8 +14,7 @@ from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame, QGridLayout,
     QPushButton, QTableWidget, QTableWidgetItem, QHeaderView, QSizePolicy,
     QSpacerItem, QGraphicsDropShadowEffect, QScrollArea, QCalendarWidget,
-    QComboBox, QStackedWidget, QLineEdit, QToolButton, QMenu, QAction,
-    QDialog, QTextEdit, QDialogButtonBox, QTabWidget
+    QComboBox, QStackedWidget, QLineEdit, QToolButton, QMenu
 )
 from PySide6.QtCore import (
     Qt, QSize, QDate, Signal, QTimer, QPropertyAnimation, 
@@ -23,23 +22,37 @@ from PySide6.QtCore import (
 )
 from PySide6.QtGui import (
     QIcon, QColor, QFont, QPainter, QPixmap, QPalette, QBrush, 
-    QLinearGradient, QPen, QCursor
+    QLinearGradient, QPen, QCursor, QAction,
 )
 from PySide6.QtCharts import QChart, QChartView, QPieSeries, QBarSeries, QBarSet, QBarCategoryAxis, QValueAxis
 
+from ui.notifications import NotificationManager, NotificationTypes
 from utils.paths import ICONS_DIR
 
 # Logger
 logger = logging.getLogger("TireDepositManager")
 
-class AnimatedDashboardWidget(QFrame):
-    """Widget do wyświetlania statystyk na pulpicie z animacją."""
+#Definicja kolorów
+DARK_COLORS = {
+    'background': '#121212',       # Główne tło
+    'card_background': '#1E1E1E',  # Tło ramek i kontenerów
+    'text_primary': '#E0E0E0',     # Główny kolor tekstu
+    'text_secondary': '#A0A0A0',   # Drugorzędny kolor tekstu
+    'accent_blue': '#4A6CF7',      # Niebieski akcentowy
+    'accent_green': '#3CA576',     # Zielony akcentowy
+    'accent_red': '#DB7093',       # Czerwony/różowy akcentowy
+    'border': '#333333',           # Kolor obramowań
+    'hover': '#2C2C2C'             # Kolor przy najechaniu
+}
+
+class StatWidget(QFrame):
+    """Widget do wyświetlania statystyk z animacją licznika."""
     
-    clicked = Signal()  # Sygnał emitowany przy kliknięciu w widget
+    clicked = Signal()  # Sygnał emitowany przy kliknięciu
     
-    def __init__(self, title, value, icon_path=None, color="#3498db", parent=None):
+    def __init__(self, title, value="0", icon_path=None, color="#4A6CF7", parent=None):
         """
-        Inicjalizacja widgetu statystyk z animacją.
+        Inicjalizacja widgetu statystyk.
         
         Args:
             title (str): Tytuł widgetu
@@ -51,21 +64,31 @@ class AnimatedDashboardWidget(QFrame):
         super().__init__(parent)
         
         # Ustawienie stylu
-        self.setObjectName("dashboardWidget")
+        self.setObjectName("statWidget")
         self.setStyleSheet(f"""
-            QFrame#dashboardWidget {{
+            QFrame#statWidget {{
                 background-color: {color};
                 border-radius: 12px;
                 color: white;
                 padding: 18px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
             }}
             
-            QFrame#dashboardWidget:hover {{
+            QFrame#statWidget QLabel {{
+                background-color: rgba(0, 0, 0, 0);
+                border-radius: 0px;
+                padding: 0px;
+            }}
+            
+            QFrame#statWidget:hover {{
                 background-color: qlineargradient(
                     x1:0, y1:0, x2:1, y2:1,
-                    stop:0 {color}, stop:1 {self._lighten_color(color, 20)}
+                    stop:0 {color}, stop:1 {self._lighten_color(color, 40)}
                 );
-                border: 1px solid white;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                box-shadow: 0 6px 8px rgba(0, 0, 0, 0.2);
+                transform: translateY(-5px);
             }}
         """)
         
@@ -77,7 +100,7 @@ class AnimatedDashboardWidget(QFrame):
         self.setGraphicsEffect(shadow)
         
         # Ustawienie minimalnej wysokości
-        self.setMinimumHeight(150)
+        self.setMinimumHeight(140)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         
         # Układ widgetu
@@ -92,13 +115,32 @@ class AnimatedDashboardWidget(QFrame):
         self.icon_label = QLabel()
         if icon_path and os.path.exists(icon_path):
             pixmap = QPixmap(icon_path).scaled(32, 32, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            
+            # Opcjonalnie: lekko przyciemnij ikonę
+            image = pixmap.toImage()
+            for x in range(image.width()):
+                for y in range(image.height()):
+                    color = image.pixelColor(x, y)
+                    if color.alpha() > 0:  # Jeśli piksel nie jest przezroczysty
+                        color.setRgb(
+                            max(0, color.red() - 50),
+                            max(0, color.green() - 50), 
+                            max(0, color.blue() - 50)
+                        )
+                        image.setPixelColor(x, y, color)
+            
+            pixmap = QPixmap.fromImage(image)
             self.icon_label.setPixmap(pixmap)
-        header_layout.addWidget(self.icon_label)
         
         # Tytuł
         title_label = QLabel(title)
-        title_label.setFont(QFont("Segoe UI", 11, QFont.Bold))
-        title_label.setStyleSheet("color: rgba(255, 255, 255, 0.9);")
+        title_label.setFont(QFont("Segoe UI", 14, QFont.Bold))
+        title_label.setStyleSheet("""
+            color: rgba(255, 255, 255, 0.9);
+            background-color: rgba(0, 0, 0, 30);
+            border-radius: 6px;
+            padding: 5px;
+        """)
         title_label.setWordWrap(True)
         header_layout.addWidget(title_label, 1)
         
@@ -109,14 +151,25 @@ class AnimatedDashboardWidget(QFrame):
         self._target_value = int(value)
         self.value_label = QLabel("0")
         self.value_label.setFont(QFont("Segoe UI", 28, QFont.Bold))
-        self.value_label.setStyleSheet("color: white; margin-top: 5px;")
+        self.value_label.setStyleSheet("""
+            color: white;
+            margin-top: 5px;
+            background-color: rgba(0, 0, 0, 30);
+            border-radius: 6px;
+            padding: 5px;
+        """)
         self.value_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.value_label)
         
         # Dodatkowy tekst informacyjny
         self.info_label = QLabel("Kliknij, aby zobaczyć szczegóły")
         self.info_label.setFont(QFont("Segoe UI", 9))
-        self.info_label.setStyleSheet("color: rgba(255, 255, 255, 0.7);")
+        self.info_label.setStyleSheet("""
+            color: rgba(255, 255, 255, 0.7);
+            background-color: rgba(0, 0, 0, 30);
+            border-radius: 6px;
+            padding: 5px;
+        """)
         self.info_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(self.info_label)
         
@@ -147,10 +200,14 @@ class AnimatedDashboardWidget(QFrame):
             
     def set_value(self, new_value):
         """Ustawia nową wartość z animacją."""
-        self._target_value = int(new_value)
-        # Zresetuj timer jeśli został zatrzymany
-        if not self.timer.isActive():
-            self.timer.start(30)
+        try:
+            # Konwersja na int
+            self._target_value = int(new_value)
+            # Zresetuj timer jeśli został zatrzymany
+            if not self.timer.isActive():
+                self.timer.start(30)
+        except (ValueError, TypeError):
+            self.value_label.setText(str(new_value))
             
     def set_trend(self, percentage_change):
         """Ustawia informację o trendzie zmian."""
@@ -166,6 +223,11 @@ class AnimatedDashboardWidget(QFrame):
             
         self.info_label.setText(trend_text)
         self.info_label.setStyleSheet(f"color: {trend_color};")
+    
+    def set_info_text(self, text, color="rgba(255, 255, 255, 0.7)"):
+        """Ustawia tekst informacyjny."""
+        self.info_label.setText(text)
+        self.info_label.setStyleSheet(f"color: {color};")
         
     def _lighten_color(self, color, amount=20):
         """Rozjaśnia kolor HEX o podaną wartość."""
@@ -184,243 +246,65 @@ class AnimatedDashboardWidget(QFrame):
         # Emitujemy sygnał kliknięcia
         self.clicked.emit()
 
-class NotificationWidget(QFrame):
-    """Widget powiadomień z możliwością rozwijania szczegółów."""
+class ActionButton(QFrame):
+    """Przycisk szybkiej akcji z ikoną."""
     
-    def __init__(self, title, message, date, icon_path=None, priority="normal", parent=None):
+    clicked = Signal()  # Sygnał emitowany przy kliknięciu
+    
+    def __init__(self, title, icon_path, color="#3498db", parent=None):
         """
-        Inicjalizacja widgetu powiadomień.
+        Inicjalizacja przycisku akcji.
         
         Args:
-            title (str): Tytuł powiadomienia
-            message (str): Treść powiadomienia
-            date (str): Data powiadomienia
-            icon_path (str, optional): Ścieżka do ikony. Domyślnie None.
-            priority (str, optional): Priorytet ("high", "normal", "low"). Domyślnie "normal".
+            title (str): Tytuł przycisku
+            icon_path (str): Ścieżka do ikony
+            color (str, optional): Kolor tła w formacie HEX. Domyślnie niebieski.
             parent (QWidget, optional): Widget rodzica. Domyślnie None.
         """
         super().__init__(parent)
         
         # Ustawienie stylu
-        self.setObjectName("notificationWidget")
-        
-        # Mapowanie priorytetów na kolory
-        priority_colors = {
-            "high": "#e74c3c",
-            "normal": "#3498db",
-            "low": "#2ecc71"
-        }
-        
-        border_color = priority_colors.get(priority, "#3498db")
-        
+        self.setObjectName("actionButton")
         self.setStyleSheet(f"""
-            QFrame#notificationWidget {{
-                background-color: white;
-                border-left: 5px solid {border_color};
-                border-radius: 5px;
-                padding: 8px;
-                margin: 3px;
+            QFrame#actionButton {{
+                background-color: {color};
+                border-radius: 10px;
+                color: white;
+                padding: 10px;
+            }}
+            
+            QFrame#actionButton:hover {{
+                background-color: {self._lighten_color(color)};
+                border: 1px solid white;
             }}
         """)
         
         # Dodaj efekt cienia
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(8)
-        shadow.setColor(QColor(0, 0, 0, 30))
-        shadow.setOffset(0, 2)
+        shadow.setBlurRadius(10)
+        shadow.setColor(QColor(0, 0, 0, 50))
+        shadow.setOffset(0, 3)
         self.setGraphicsEffect(shadow)
         
-        # Główny układ
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(5)
-        
-        # Nagłówek (tytuł + data)
-        header_layout = QHBoxLayout()
+        # Układ widgetu
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(8)
         
         # Ikona
-        if icon_path and os.path.exists(icon_path):
-            icon_label = QLabel()
+        icon_label = QLabel()
+        if os.path.exists(icon_path):
             pixmap = QPixmap(icon_path).scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             icon_label.setPixmap(pixmap)
-            header_layout.addWidget(icon_label)
-        
-        # Tytuł
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
-        title_label.setStyleSheet("color: #2c3e50;")
-        header_layout.addWidget(title_label, 1)
-        
-        # Data
-        date_label = QLabel(date)
-        date_label.setFont(QFont("Segoe UI", 8))
-        date_label.setStyleSheet("color: #7f8c8d;")
-        date_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        header_layout.addWidget(date_label)
-        
-        layout.addLayout(header_layout)
-        
-        # Treść powiadomienia
-        message_label = QLabel(message)
-        message_label.setFont(QFont("Segoe UI", 9))
-        message_label.setStyleSheet("color: #34495e;")
-        message_label.setWordWrap(True)
-        layout.addWidget(message_label)
-        
-        # Przyciski akcji
-        action_layout = QHBoxLayout()
-        action_layout.setContentsMargins(0, 5, 0, 0)
-        
-        # Przycisk szczegółów
-        details_button = QPushButton("Szczegóły")
-        details_button.setFont(QFont("Segoe UI", 8))
-        details_button.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: #3498db;
-                border: none;
-                padding: 5px;
-            }
-            QPushButton:hover {
-                color: #2980b9;
-                text-decoration: underline;
-            }
-        """)
-        details_button.setCursor(QCursor(Qt.PointingHandCursor))
-        action_layout.addWidget(details_button)
-        
-        # Przycisk oznaczenia jako przeczytane
-        mark_read_button = QPushButton("Oznacz jako przeczytane")
-        mark_read_button.setFont(QFont("Segoe UI", 8))
-        mark_read_button.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: #7f8c8d;
-                border: none;
-                padding: 5px;
-            }
-            QPushButton:hover {
-                color: #34495e;
-                text-decoration: underline;
-            }
-        """)
-        mark_read_button.setCursor(QCursor(Qt.PointingHandCursor))
-        action_layout.addWidget(mark_read_button, alignment=Qt.AlignRight)
-        
-        layout.addLayout(action_layout)
-        
-        # Podłączenie zdarzeń
-        details_button.clicked.connect(self._show_details)
-        mark_read_button.clicked.connect(self._mark_as_read)
-        
-        # Zachowanie treści do wyświetlenia szczegółów
-        self._title = title
-        self._message = message
-        self._date = date
-        
-    def _show_details(self):
-        """Pokazuje dialog ze szczegółami powiadomienia."""
-        dialog = QDialog(self.parent())
-        dialog.setWindowTitle("Szczegóły powiadomienia")
-        dialog.setMinimumSize(400, 300)
-        
-        layout = QVBoxLayout(dialog)
-        
-        # Tytuł
-        title_label = QLabel(self._title)
-        title_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        layout.addWidget(title_label)
-        
-        # Data
-        date_label = QLabel(f"Data: {self._date}")
-        date_label.setFont(QFont("Segoe UI", 9))
-        date_label.setStyleSheet("color: #7f8c8d;")
-        layout.addWidget(date_label)
-        
-        # Treść
-        message_edit = QTextEdit()
-        message_edit.setFont(QFont("Segoe UI", 10))
-        message_edit.setText(self._message)
-        message_edit.setReadOnly(True)
-        layout.addWidget(message_edit)
-        
-        # Przyciski
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok)
-        button_box.accepted.connect(dialog.accept)
-        layout.addWidget(button_box)
-        
-        dialog.exec_()
-        
-    def _mark_as_read(self):
-        """Oznacza powiadomienie jako przeczytane (ukrywa je)."""
-        self.hide()
-        # W prawdziwej aplikacji dodalibyśmy kod do aktualizacji bazy danych
-
-class ActionButtonWidget(QFrame):
-    """Widget z przyciskiem szybkiej akcji."""
-    
-    clicked = Signal()  # Sygnał emitowany przy kliknięciu w widget
-    
-    def __init__(self, title, icon_path, color="#3498db", parent=None):
-        """
-        Inicjalizacja widgetu przycisku akcji.
-        
-        Args:
-            title (str): Tytuł przycisku
-            icon_path (str): Ścieżka do ikony
-            color (str, optional): Kolor tła w formacie HEX. Domyślnie niebieski.
-            parent (QWidget, optional): Widget rodzica. Domyślnie None.
-        """
-        super().__init__(parent)
-        
-        # Ustawienie stylu
-        self.setObjectName("actionButtonWidget")
-        self.setStyleSheet(f"""
-            QFrame#actionButtonWidget {{
-                background-color: {color};
-                border-radius: 10px;
-                color: white;
-                padding: 10px;
-            }}
-            
-            QFrame#actionButtonWidget:hover {{
-                background-color: {self._lighten_color(color)};
-                border: 1px solid white;
-            }}
-        """)
-        
-        # Dodaj efekt cienia
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 50))
-        shadow.setOffset(0, 3)
-        self.setGraphicsEffect(shadow)
-        
-        # Ustawienie minimalnych wymiarów
-        self.setMinimumSize(120, 120)
-        self.setMaximumSize(120, 120)
-        
-        # Układ widgetu
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
-        
-        # Ikona
-        icon_label = QLabel()
-        if os.path.exists(icon_path):
-            pixmap = QPixmap(icon_path).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            icon_label.setPixmap(pixmap)
             icon_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(icon_label, alignment=Qt.AlignCenter)
+        layout.addWidget(icon_label)
         
         # Tytuł
         title_label = QLabel(title)
         title_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
         title_label.setStyleSheet("color: white;")
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setWordWrap(True)
-        layout.addWidget(title_label, alignment=Qt.AlignCenter)
+        title_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        layout.addWidget(title_label, 1)
         
         # Ustawienie wskazówki
         self.setToolTip(f"Kliknij, aby {title.lower()}")
@@ -444,1124 +328,14 @@ class ActionButtonWidget(QFrame):
         super().mousePressEvent(event)
         # Emitujemy sygnał kliknięcia
         self.clicked.emit()
-
-class PieChartWidget(QFrame):
-    """Widget wykresu kołowego."""
-    
-    def __init__(self, title, data, colors=None, parent=None):
-        """
-        Inicjalizacja widgetu wykresu kołowego.
-        
-        Args:
-            title (str): Tytuł wykresu
-            data (dict): Dane w formacie {etykieta: wartość}
-            colors (list, optional): Lista kolorów dla wykresów. Domyślnie None.
-            parent (QWidget, optional): Widget rodzica. Domyślnie None.
-        """
-        super().__init__(parent)
-        
-        # Ustawienie stylu
-        self.setObjectName("chartWidget")
-        self.setStyleSheet("""
-            QFrame#chartWidget {
-                background-color: white;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """)
-        
-        # Dodaj efekt cienia
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 50))
-        shadow.setOffset(0, 3)
-        self.setGraphicsEffect(shadow)
-        
-        # Ustawienie minimalnych wymiarów
-        self.setMinimumHeight(250)
-        
-        # Układ widgetu
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        # Tytuł
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        title_label.setStyleSheet("color: #2c3e50;")
-        layout.addWidget(title_label)
-        
-        # Wykres kołowy
-        self.chart = QChart()
-        self.chart.setTitle("")
-        self.chart.setAnimationOptions(QChart.SeriesAnimations)
-        self.chart.legend().setVisible(True)
-        self.chart.legend().setAlignment(Qt.AlignBottom)
-        
-        # Seria danych
-        series = QPieSeries()
-        
-        # Domyślne kolory
-        if colors is None:
-            colors = ['#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6', '#1abc9c', '#34495e', '#e67e22']
-        
-        # Dodaj elementy
-        for i, (label, value) in enumerate(data.items()):
-            slice = series.append(label, value)
-            slice.setLabelVisible(True)
-            slice.setLabel(f"{label}: {value} ({value / sum(data.values()) * 100:.1f}%)")
-            slice.setBrush(QColor(colors[i % len(colors)]))
-        
-        self.chart.addSeries(series)
-        
-        # Widok wykresu
-        chart_view = QChartView(self.chart)
-        chart_view.setRenderHint(QPainter.Antialiasing)
-        layout.addWidget(chart_view)
-
-class BarChartWidget(QFrame):
-    """Widget wykresu słupkowego."""
-    
-    def __init__(self, title, data, categories, color="#3498db", parent=None):
-        """
-        Inicjalizacja widgetu wykresu słupkowego.
-        
-        Args:
-            title (str): Tytuł wykresu
-            data (list): Lista wartości dla słupków
-            categories (list): Lista kategorii (etykiet) dla słupków
-            color (str, optional): Kolor słupków. Domyślnie niebieski.
-            parent (QWidget, optional): Widget rodzica. Domyślnie None.
-        """
-        super().__init__(parent)
-        
-        # Ustawienie stylu
-        self.setObjectName("chartWidget")
-        self.setStyleSheet("""
-            QFrame#chartWidget {
-                background-color: white;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """)
-        
-        # Dodaj efekt cienia
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 50))
-        shadow.setOffset(0, 3)
-        self.setGraphicsEffect(shadow)
-        
-        # Ustawienie minimalnych wymiarów
-        self.setMinimumHeight(250)
-        
-        # Układ widgetu
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        # Tytuł
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        title_label.setStyleSheet("color: #2c3e50;")
-        layout.addWidget(title_label)
-        
-        # Wykres słupkowy
-        self.chart = QChart()
-        self.chart.setTitle("")
-        self.chart.setAnimationOptions(QChart.SeriesAnimations)
-        
-        # Seria danych
-        bar_set = QBarSet("Wartość")
-        bar_set.setColor(QColor(color))
-        
-        # Dodaj elementy
-        for value in data:
-            bar_set.append(value)
-        
-        series = QBarSeries()
-        series.append(bar_set)
-        self.chart.addSeries(series)
-        
-        # Osie
-        axis_x = QBarCategoryAxis()
-        axis_x.append(categories)
-        self.chart.addAxis(axis_x, Qt.AlignBottom)
-        series.attachAxis(axis_x)
-        
-        axis_y = QValueAxis()
-        axis_y.setRange(0, max(data) * 1.1)  # Dodaj 10% na górze
-        self.chart.addAxis(axis_y, Qt.AlignLeft)
-        series.attachAxis(axis_y)
-        
-        # Legenda
-        self.chart.legend().setVisible(False)
-        
-        # Widok wykresu
-        chart_view = QChartView(self.chart)
-        chart_view.setRenderHint(QPainter.Antialiasing)
-        layout.addWidget(chart_view)
-
-class SearchBarWidget(QFrame):
-    """Widget paska wyszukiwania."""
-    
-    search_requested = Signal(str)  # Sygnał emitowany przy wyszukiwaniu
-    
-    def __init__(self, parent=None):
-        """Inicjalizacja widgetu paska wyszukiwania."""
-        super().__init__(parent)
-        
-        # Ustawienie stylu
-        self.setObjectName("searchBarWidget")
-        self.setStyleSheet("""
-            QFrame#searchBarWidget {
-                background-color: white;
-                border-radius: 10px;
-                padding: 5px;
-            }
-        """)
-        
-        # Dodaj efekt cienia
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(8)
-        shadow.setColor(QColor(0, 0, 0, 30))
-        shadow.setOffset(0, 2)
-        self.setGraphicsEffect(shadow)
-        
-        # Układ widgetu
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(5)
-        
-        # Ikona wyszukiwania
-        icon_label = QLabel()
-        icon_path = os.path.join(ICONS_DIR, "search.png")
-        if os.path.exists(icon_path):
-            pixmap = QPixmap(icon_path).scaled(16, 16, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            icon_label.setPixmap(pixmap)
-        layout.addWidget(icon_label)
-        
-        # Pole wyszukiwania
-        self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Szukaj klientów, opon, depozytów...")
-        self.search_edit.setFont(QFont("Segoe UI", 10))
-        self.search_edit.setStyleSheet("""
-            QLineEdit {
-                border: none;
-                padding: 5px;
-            }
-        """)
-        layout.addWidget(self.search_edit)
-        
-        # Przycisk filtrowania
-        filter_button = QToolButton()
-        filter_button.setIcon(QIcon(os.path.join(ICONS_DIR, "filter.png")))
-        filter_button.setToolTip("Filtry wyszukiwania")
-        filter_button.setStyleSheet("""
-            QToolButton {
-                border: none;
-                padding: 5px;
-            }
-            QToolButton:hover {
-                background-color: #f0f0f0;
-                border-radius: 3px;
-            }
-        """)
-        layout.addWidget(filter_button)
-        
-        # Menu filtrów
-        filter_menu = QMenu(filter_button)
-        filter_menu.addAction("Klienci")
-        filter_menu.addAction("Depozyty")
-        filter_menu.addAction("Wizyty")
-        filter_menu.addAction("Opony")
-        filter_button.setMenu(filter_menu)
-        filter_button.setPopupMode(QToolButton.InstantPopup)
-        
-        # Podłączenie sygnałów
-        self.search_edit.returnPressed.connect(self._search)
-        
-    def _search(self):
-        """Wyszukuje podany tekst."""
-        search_text = self.search_edit.text()
-        if search_text:
-            # Emitujemy sygnał z tekstem wyszukiwania
-            self.search_requested.emit(search_text)
-
-class WeatherWidget(QFrame):
-    """Widget do wyświetlania prognozy pogody."""
-    
-    def __init__(self, parent=None):
-        """Inicjalizacja widgetu prognozy pogody."""
-        super().__init__(parent)
-        
-class ActionButtonWidget(QFrame):
-    """Widget z przyciskiem szybkiej akcji."""
-    
-    clicked = Signal()  # Sygnał emitowany przy kliknięciu w widget
-    
-    def __init__(self, title, icon_path, color="#3498db", parent=None):
-        """
-        Inicjalizacja widgetu przycisku akcji.
-        
-        Args:
-            title (str): Tytuł przycisku
-            icon_path (str): Ścieżka do ikony
-            color (str, optional): Kolor tła w formacie HEX. Domyślnie niebieski.
-            parent (QWidget, optional): Widget rodzica. Domyślnie None.
-        """
-        super().__init__(parent)
-        
-        # Ustawienie stylu
-        self.setObjectName("actionButtonWidget")
-        self.setStyleSheet(f"""
-            QFrame#actionButtonWidget {{
-                background-color: {color};
-                border-radius: 10px;
-                color: white;
-                padding: 10px;
-            }}
-            
-            QFrame#actionButtonWidget:hover {{
-                background-color: {self._lighten_color(color)};
-                border: 1px solid white;
-            }}
-        """)
-        
-        # Dodaj efekt cienia
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 50))
-        shadow.setOffset(0, 3)
-        self.setGraphicsEffect(shadow)
-        
-        # Ustawienie minimalnych wymiarów
-        self.setMinimumSize(120, 120)
-        self.setMaximumSize(120, 120)
-        
-        # Układ widgetu
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(8)
-        
-        # Ikona
-        icon_label = QLabel()
-        if os.path.exists(icon_path):
-            pixmap = QPixmap(icon_path).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            icon_label.setPixmap(pixmap)
-            icon_label.setAlignment(Qt.AlignCenter)
-        layout.addWidget(icon_label, alignment=Qt.AlignCenter)
-        
-        # Tytuł
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
-        title_label.setStyleSheet("color: white;")
-        title_label.setAlignment(Qt.AlignCenter)
-        title_label.setWordWrap(True)
-        layout.addWidget(title_label, alignment=Qt.AlignCenter)
-        
-        # Ustawienie wskazówki
-        self.setToolTip(f"Kliknij, aby {title.lower()}")
-        
-        # Podłączenie zdarzenia kliknięcia
-        self.setCursor(QCursor(Qt.PointingHandCursor))
-        
-    def _lighten_color(self, color, amount=20):
-        """Rozjaśnia kolor HEX o podaną wartość."""
-        color = color.lstrip('#')
-        r, g, b = int(color[0:2], 16), int(color[2:4], 16), int(color[4:6], 16)
-        
-        r = min(255, r + amount)
-        g = min(255, g + amount)
-        b = min(255, b + amount)
-        
-        return f"#{r:02x}{g:02x}{b:02x}"
-    
-    def mousePressEvent(self, event):
-        """Obsługa kliknięcia w widget."""
-        super().mousePressEvent(event)
-        # Emitujemy sygnał kliknięcia
-        self.clicked.emit()
-
-class PieChartWidget(QFrame):
-    """Widget wykresu kołowego."""
-    
-    def __init__(self, title, data, colors=None, parent=None):
-        """
-        Inicjalizacja widgetu wykresu kołowego.
-        
-        Args:
-            title (str): Tytuł wykresu
-            data (dict): Dane w formacie {etykieta: wartość}
-            colors (list, optional): Lista kolorów dla wykresów. Domyślnie None.
-            parent (QWidget, optional): Widget rodzica. Domyślnie None.
-        """
-        super().__init__(parent)
-        
-        # Ustawienie stylu
-        self.setObjectName("chartWidget")
-        self.setStyleSheet("""
-            QFrame#chartWidget {
-                background-color: white;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """)
-        
-        # Dodaj efekt cienia
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 50))
-        shadow.setOffset(0, 3)
-        self.setGraphicsEffect(shadow)
-        
-        # Ustawienie minimalnych wymiarów
-        self.setMinimumHeight(250)
-        
-        # Układ widgetu
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        # Tytuł
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        title_label.setStyleSheet("color: #2c3e50;")
-        layout.addWidget(title_label)
-        
-        # Wykres kołowy
-        self.chart = QChart()
-        self.chart.setTitle("")
-        self.chart.setAnimationOptions(QChart.SeriesAnimations)
-        self.chart.legend().setVisible(True)
-        self.chart.legend().setAlignment(Qt.AlignBottom)
-        
-        # Seria danych
-        series = QPieSeries()
-        
-        # Domyślne kolory
-        if colors is None:
-            colors = ['#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6', '#1abc9c', '#34495e', '#e67e22']
-        
-        # Dodaj elementy
-        for i, (label, value) in enumerate(data.items()):
-            slice = series.append(label, value)
-            slice.setLabelVisible(True)
-            slice.setLabel(f"{label}: {value} ({value / sum(data.values()) * 100:.1f}%)")
-            slice.setBrush(QColor(colors[i % len(colors)]))
-        
-        self.chart.addSeries(series)
-        
-        # Widok wykresu
-        chart_view = QChartView(self.chart)
-        chart_view.setRenderHint(QPainter.Antialiasing)
-        layout.addWidget(chart_view)
-
-class BarChartWidget(QFrame):
-    """Widget wykresu słupkowego."""
-    
-    def __init__(self, title, data, categories, color="#3498db", parent=None):
-        """
-        Inicjalizacja widgetu wykresu słupkowego.
-        
-        Args:
-            title (str): Tytuł wykresu
-            data (list): Lista wartości dla słupków
-            categories (list): Lista kategorii (etykiet) dla słupków
-            color (str, optional): Kolor słupków. Domyślnie niebieski.
-            parent (QWidget, optional): Widget rodzica. Domyślnie None.
-        """
-        super().__init__(parent)
-        
-        # Ustawienie stylu
-        self.setObjectName("chartWidget")
-        self.setStyleSheet("""
-            QFrame#chartWidget {
-                background-color: white;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """)
-        
-        # Dodaj efekt cienia
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 50))
-        shadow.setOffset(0, 3)
-        self.setGraphicsEffect(shadow)
-        
-        # Ustawienie minimalnych wymiarów
-        self.setMinimumHeight(250)
-        
-        # Układ widgetu
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        
-        # Tytuł
-        title_label = QLabel(title)
-        title_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        title_label.setStyleSheet("color: #2c3e50;")
-        layout.addWidget(title_label)
-        
-        # Wykres słupkowy
-        self.chart = QChart()
-        self.chart.setTitle("")
-        self.chart.setAnimationOptions(QChart.SeriesAnimations)
-        
-        # Seria danych
-        bar_set = QBarSet("Wartość")
-        bar_set.setColor(QColor(color))
-        
-        # Dodaj elementy
-        for value in data:
-            bar_set.append(value)
-        
-        series = QBarSeries()
-        series.append(bar_set)
-        self.chart.addSeries(series)
-        
-        # Osie
-        axis_x = QBarCategoryAxis()
-        axis_x.append(categories)
-        self.chart.addAxis(axis_x, Qt.AlignBottom)
-        series.attachAxis(axis_x)
-        
-        axis_y = QValueAxis()
-        axis_y.setRange(0, max(data) * 1.1)  # Dodaj 10% na górze
-        self.chart.addAxis(axis_y, Qt.AlignLeft)
-        series.attachAxis(axis_y)
-        
-        # Legenda
-        self.chart.legend().setVisible(False)
-        
-        # Widok wykresu
-        chart_view = QChartView(self.chart)
-        chart_view.setRenderHint(QPainter.Antialiasing)
-        layout.addWidget(chart_view)
-
-class SearchBarWidget(QFrame):
-    """Widget paska wyszukiwania."""
-    
-    search_requested = Signal(str)  # Sygnał emitowany przy wyszukiwaniu
-    
-    def __init__(self, parent=None):
-        """Inicjalizacja widgetu paska wyszukiwania."""
-        super().__init__(parent)
-        
-        # Ustawienie stylu
-        self.setObjectName("searchBarWidget")
-        self.setStyleSheet("""
-            QFrame#searchBarWidget {
-                background-color: white;
-                border-radius: 10px;
-                padding: 5px;
-            }
-        """)
-        
-        # Dodaj efekt cienia
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(8)
-        shadow.setColor(QColor(0, 0, 0, 30))
-        shadow.setOffset(0, 2)
-        self.setGraphicsEffect(shadow)
-        
-        # Układ widgetu
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(5)
-        
-        # Ikona wyszukiwania
-        icon_label = QLabel()
-        icon_path = os.path.join(ICONS_DIR, "search.png")
-        if os.path.exists(icon_path):
-            pixmap = QPixmap(icon_path).scaled(16, 16, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            icon_label.setPixmap(pixmap)
-        layout.addWidget(icon_label)
-        
-        # Pole wyszukiwania
-        self.search_edit = QLineEdit()
-        self.search_edit.setPlaceholderText("Szukaj klientów, opon, depozytów...")
-        self.search_edit.setFont(QFont("Segoe UI", 10))
-        self.search_edit.setStyleSheet("""
-            QLineEdit {
-                border: none;
-                padding: 5px;
-            }
-        """)
-        layout.addWidget(self.search_edit)
-        
-        # Przycisk filtrowania
-        filter_button = QToolButton()
-        filter_button.setIcon(QIcon(os.path.join(ICONS_DIR, "filter.png")))
-        filter_button.setToolTip("Filtry wyszukiwania")
-        filter_button.setStyleSheet("""
-            QToolButton {
-                border: none;
-                padding: 5px;
-            }
-            QToolButton:hover {
-                background-color: #f0f0f0;
-                border-radius: 3px;
-            }
-        """)
-        layout.addWidget(filter_button)
-        
-        # Menu filtrów
-        filter_menu = QMenu(filter_button)
-        filter_menu.addAction("Klienci")
-        filter_menu.addAction("Depozyty")
-        filter_menu.addAction("Wizyty")
-        filter_menu.addAction("Opony")
-        filter_button.setMenu(filter_menu)
-        filter_button.setPopupMode(QToolButton.InstantPopup)
-        
-        # Podłączenie sygnałów
-        self.search_edit.returnPressed.connect(self._search)
-        
-    def _search(self):
-        """Wyszukuje podany tekst."""
-        search_text = self.search_edit.text()
-        if search_text:
-            # Emitujemy sygnał z tekstem wyszukiwania
-            self.search_requested.emit(search_text)
-
-class WeatherWidget(QFrame):
-    """Widget do wyświetlania prognozy pogody."""
-    
-    def __init__(self, parent=None):
-        """Inicjalizacja widgetu prognozy pogody."""
-        super().__init__(parent)
-        
-        # Ustawienie stylu
-        self.setObjectName("weatherWidget")
-        self.setStyleSheet("""
-            QFrame#weatherWidget {
-                background-color: #3498db;
-                border-radius: 10px;
-                padding: 10px;
-                color: white;
-            }
-        """)
-        
-        # Dodaj efekt cienia
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 50))
-        shadow.setOffset(0, 3)
-        self.setGraphicsEffect(shadow)
-        
-        # Układ widgetu
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(15, 15, 15, 15)
-        layout.setSpacing(10)
-        
-        # Nagłówek z lokalizacją
-        location_layout = QHBoxLayout()
-        
-        location_label = QLabel("Warszawa")
-        location_label.setFont(QFont("Segoe UI", 14, QFont.Bold))
-        location_label.setStyleSheet("color: white;")
-        location_layout.addWidget(location_label)
-        
-        # Przycisk odświeżania
-        refresh_button = QToolButton()
-        refresh_button.setIcon(QIcon(os.path.join(ICONS_DIR, "refresh.png")))
-        refresh_button.setStyleSheet("""
-            QToolButton {
-                background-color: rgba(255, 255, 255, 0.2);
-                border-radius: 15px;
-                padding: 5px;
-            }
-            QToolButton:hover {
-                background-color: rgba(255, 255, 255, 0.3);
-            }
-        """)
-        refresh_button.setFixedSize(30, 30)
-        location_layout.addWidget(refresh_button, alignment=Qt.AlignRight)
-        
-        layout.addLayout(location_layout)
-        
-        # Informacje o aktualnej pogodzie
-        current_weather_layout = QHBoxLayout()
-        
-        # Ikona pogody
-        weather_icon_label = QLabel()
-        weather_icon_path = os.path.join(ICONS_DIR, "sun.png")  # Przykładowa ikona
-        if os.path.exists(weather_icon_path):
-            pixmap = QPixmap(weather_icon_path).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            weather_icon_label.setPixmap(pixmap)
-        current_weather_layout.addWidget(weather_icon_label)
-        
-        # Temperatura i opis
-        temp_layout = QVBoxLayout()
-        
-        temp_label = QLabel("12°C")
-        temp_label.setFont(QFont("Segoe UI", 24, QFont.Bold))
-        temp_label.setStyleSheet("color: white;")
-        temp_layout.addWidget(temp_label)
-        
-        desc_label = QLabel("Słonecznie")
-        desc_label.setFont(QFont("Segoe UI", 12))
-        desc_label.setStyleSheet("color: rgba(255, 255, 255, 0.8);")
-        temp_layout.addWidget(desc_label)
-        
-        current_weather_layout.addLayout(temp_layout)
-        
-        layout.addLayout(current_weather_layout)
-        
-        # Dodatkowe informacje
-        details_frame = QFrame()
-        details_frame.setStyleSheet("""
-            QFrame {
-                background-color: rgba(255, 255, 255, 0.2);
-                border-radius: 8px;
-                padding: 8px;
-            }
-        """)
-        details_layout = QGridLayout(details_frame)
-        details_layout.setContentsMargins(10, 10, 10, 10)
-        details_layout.setSpacing(10)
-        
-        # Wiersz 1
-        details_layout.addWidget(QLabel("Wilgotność:"), 0, 0)
-        details_layout.addWidget(QLabel("45%"), 0, 1)
-        details_layout.addWidget(QLabel("Wiatr:"), 0, 2)
-        details_layout.addWidget(QLabel("10 km/h"), 0, 3)
-        
-        # Wiersz 2
-        details_layout.addWidget(QLabel("Ciśnienie:"), 1, 0)
-        details_layout.addWidget(QLabel("1013 hPa"), 1, 1)
-        details_layout.addWidget(QLabel("Widoczność:"), 1, 2)
-        details_layout.addWidget(QLabel("10 km"), 1, 3)
-        
-        # Ustawienie stylu etykiet
-        for i in range(details_layout.count()):
-            widget = details_layout.itemAt(i).widget()
-            if widget:
-                widget.setFont(QFont("Segoe UI", 9))
-                widget.setStyleSheet("color: white;")
-        
-        layout.addWidget(details_frame)
-        
-        # Podłączenie sygnałów
-        refresh_button.clicked.connect(self._refresh_weather)
-        
-    def _refresh_weather(self):
-        """Odświeża dane pogodowe."""
-        # W rzeczywistej aplikacji, tutaj pobieralibyśmy dane z API pogodowego
-        # Na potrzeby przykładu, symulujemy odświeżanie
-        self.setDisabled(True)
-        QTimer.singleShot(1000, lambda: self.setDisabled(False))
-
-class UpcomingAppointmentsWidget(QFrame):
-    """Widget do wyświetlania nadchodzących wizyt."""
-    
-    view_all_requested = Signal()
-    date_selected = Signal(QDate)
-    
-    def __init__(self, parent=None):
-        """Inicjalizacja widgetu nadchodzących wizyt."""
-        super().__init__(parent)
-        
-        # Ustawienie stylu
-        self.setObjectName("upcomingAppointmentsWidget")
-        self.setStyleSheet("""
-            QFrame#upcomingAppointmentsWidget {
-                background-color: white;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """)
-        
-        # Dodaj efekt cienia
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 50))
-        shadow.setOffset(0, 3)
-        self.setGraphicsEffect(shadow)
-        
-        # Układ widgetu
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(10)
-        
-        # Nagłówek
-        header_layout = QHBoxLayout()
-        
-        title_label = QLabel("Najbliższe wizyty")
-        title_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        title_label.setStyleSheet("color: #2c3e50;")
-        header_layout.addWidget(title_label)
-        
-        view_all_button = QPushButton("Zobacz wszystkie")
-        view_all_button.setFont(QFont("Segoe UI", 9))
-        view_all_button.setStyleSheet("""
-            QPushButton {
-                background-color: transparent;
-                color: #3498db;
-                border: none;
-                padding: 5px;
-            }
-            QPushButton:hover {
-                color: #2980b9;
-                text-decoration: underline;
-            }
-        """)
-        view_all_button.setCursor(QCursor(Qt.PointingHandCursor))
-        header_layout.addWidget(view_all_button, alignment=Qt.AlignRight)
-        
-        layout.addLayout(header_layout)
-        
-        # Widok kalendarza i listy
-        appointments_tabs = QTabWidget()
-        appointments_tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border: none;
-                background: white;
-            }
-            QTabBar::tab {
-                background: #f2f2f2;
-                border: 1px solid #ddd;
-                padding: 6px 12px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-            QTabBar::tab:selected {
-                background: white;
-                border-bottom-color: white;
-            }
-        """)
-        
-        # Zakładka kalendarza
-        calendar_widget = QWidget()
-        calendar_layout = QVBoxLayout(calendar_widget)
-        
-        calendar = QCalendarWidget()
-        calendar.setGridVisible(True)
-        calendar.setVerticalHeaderFormat(QCalendarWidget.NoVerticalHeader)
-        calendar.setStyleSheet("""
-            QCalendarWidget QWidget {
-                alternate-background-color: #f7f7f7;
-            }
-            QCalendarWidget QAbstractItemView:enabled {
-                selection-background-color: #3498db;
-                selection-color: white;
-            }
-        """)
-        calendar_layout.addWidget(calendar)
-        
-        appointments_tabs.addTab(calendar_widget, "Kalendarz")
-        
-        # Zakładka listy
-        list_widget = QWidget()
-        list_layout = QVBoxLayout(list_widget)
-        
-        # Przykładowe dane wizyt
-        appointments = [
-            {"client": "Jan Kowalski", "service": "Zmiana opon", "date": "Dzisiaj, 14:30", "status": "Potwierdzona"},
-            {"client": "Anna Nowak", "service": "Odbiór depozytu", "date": "Jutro, 10:00", "status": "Oczekująca"},
-            {"client": "Marcin Wiśniewski", "service": "Badanie stanu opon", "date": "22.03.2025, 12:15", "status": "Potwierdzona"}
-        ]
-        
-        for appointment in appointments:
-            appointment_frame = QFrame()
-            appointment_frame.setStyleSheet("""
-                QFrame {
-                    background-color: #f8f9fa;
-                    border-radius: 5px;
-                    padding: 8px;
-                    margin-bottom: 5px;
-                }
-            """)
-            
-            appointment_layout = QVBoxLayout(appointment_frame)
-            appointment_layout.setContentsMargins(10, 10, 10, 10)
-            appointment_layout.setSpacing(5)
-            
-            # Dane wizyty
-            client_label = QLabel(appointment["client"])
-            client_label.setFont(QFont("Segoe UI", 10, QFont.Bold))
-            appointment_layout.addWidget(client_label)
-            
-            service_label = QLabel(appointment["service"])
-            service_label.setFont(QFont("Segoe UI", 9))
-            appointment_layout.addWidget(service_label)
-            
-            # Data i status
-            details_layout = QHBoxLayout()
-            
-            date_label = QLabel(appointment["date"])
-            date_label.setFont(QFont("Segoe UI", 9))
-            date_label.setStyleSheet("color: #7f8c8d;")
-            details_layout.addWidget(date_label)
-            
-            status_label = QLabel(appointment["status"])
-            status_label.setFont(QFont("Segoe UI", 9))
-            
-            if appointment["status"] == "Potwierdzona":
-                status_label.setStyleSheet("color: #2ecc71;")
-            elif appointment["status"] == "Oczekująca":
-                status_label.setStyleSheet("color: #f39c12;")
-            else:
-                status_label.setStyleSheet("color: #e74c3c;")
-            
-            details_layout.addWidget(status_label, alignment=Qt.AlignRight)
-            
-            appointment_layout.addLayout(details_layout)
-            
-            # Przycisk szczegółów
-            details_button = QPushButton("Zarządzaj")
-            details_button.setFont(QFont("Segoe UI", 8))
-            details_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #3498db;
-                    color: white;
-                    border: none;
-                    border-radius: 3px;
-                    padding: 5px 10px;
-                }
-                QPushButton:hover {
-                    background-color: #2980b9;
-                }
-            """)
-            appointment_layout.addWidget(details_button, alignment=Qt.AlignRight)
-            
-            list_layout.addWidget(appointment_frame)
-        
-        list_layout.addStretch(1)
-        
-        appointments_tabs.addTab(list_widget, "Lista")
-        
-        layout.addWidget(appointments_tabs)
-        
-        # Podłączenie sygnałów
-        view_all_button.clicked.connect(self._view_all_appointments)
-        calendar.clicked.connect(self._date_selected)
-        
-    def _view_all_appointments(self):
-        """Pokazuje wszystkie wizyty."""
-        # Emitujemy sygnał, który powinien przełączyć widok na zakładkę wizyt
-        self.view_all_requested.emit()
-        
-    def _date_selected(self, date):
-        """Obsługuje wybranie daty w kalendarzu."""
-        # Emitujemy sygnał z wybraną datą
-        self.date_selected.emit(date)
-
-class RecentActivitiesWidget(QTableWidget):
-    """Tabela ostatnich działań z rozbudowaną funkcjonalnością."""
-    
-    details_requested = Signal(str, str, str, str)
-    refresh_requested = Signal()
-    
-    def __init__(self, parent=None):
-        """Inicjalizacja rozbudowanej tabeli ostatnich działań."""
-        super().__init__(parent)
-        
-        # Ustawienie stylów
-        self.setStyleSheet("""
-            QTableWidget {
-                background-color: white;
-                border-radius: 10px;
-                padding: 5px;
-                gridline-color: #f0f0f0;
-            }
-            QTableWidget::item {
-                padding: 8px;
-                border-bottom: 1px solid #f0f0f0;
-            }
-            QTableWidget::item:selected {
-                background-color: #e3f2fd;
-                color: #2c3e50;
-            }
-            QHeaderView::section {
-                background-color: #f8f9fa;
-                padding: 8px;
-                border: none;
-                border-bottom: 2px solid #3498db;
-                font-weight: bold;
-                color: #2c3e50;
-            }
-            QScrollBar:vertical {
-                border: none;
-                background: #f0f0f0;
-                width: 10px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #c0c0c0;
-                min-height: 30px;
-                border-radius: 5px;
-            }
-            QScrollBar::handle:vertical:hover {
-                background: #a0a0a0;
-            }
-        """)
-        
-        # Dodaj efekt cienia
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 50))
-        shadow.setOffset(0, 3)
-        self.setGraphicsEffect(shadow)
-        
-        # Konfiguracja tabeli
-        self.setColumnCount(5)
-        self.setHorizontalHeaderLabels([
-            "Data", "Typ", "Opis", "Status", "Akcje"
-        ])
-        
-        # Ustawienie rozciągania kolumn
-        header = self.horizontalHeader()
-        header.setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Data
-        header.setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Typ
-        header.setSectionResizeMode(2, QHeaderView.Stretch)           # Opis
-        header.setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Status
-        header.setSectionResizeMode(4, QHeaderView.ResizeToContents)  # Akcje
-        
-        # Ukryj nagłówki wierszy
-        self.verticalHeader().setVisible(False)
-        
-        # Włącz sortowanie
-        self.setSortingEnabled(True)
-        
-        # Ustaw domyślne sortowanie według daty (malejąco)
-        self.sortItems(0, Qt.DescendingOrder)
-        
-        # Ustaw wysokość wierszy
-        self.verticalHeader().setDefaultSectionSize(50)
-        
-        # Wyłącz edycję komórek
-        self.setEditTriggers(QTableWidget.NoEditTriggers)
-        
-        # Włącz zaznaczanie całych wierszy
-        self.setSelectionBehavior(QTableWidget.SelectRows)
-        
-        # Kontekstowe menu
-        self.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.customContextMenuRequested.connect(self._show_context_menu)
-        
-    def add_action(self, date, type_action, description, status):
-        """
-        Dodaje akcję do tabeli.
-        
-        Args:
-            date (str): Data w formacie string
-            type_action (str): Typ akcji
-            description (str): Opis akcji
-            status (str): Status akcji
-        """
-        row = self.rowCount()
-        self.insertRow(row)
-        
-        # Dodaj dane do tabeli
-        self.setItem(row, 0, QTableWidgetItem(date))
-        self.setItem(row, 1, QTableWidgetItem(type_action))
-        self.setItem(row, 2, QTableWidgetItem(description))
-        
-        # Status z odpowiednim kolorem tła
-        status_item = QTableWidgetItem(status)
-        
-        if status == "Zakończona" or status == "Aktywny":
-            status_item.setBackground(QColor("#e6f7ed"))  # Jasny zielony
-            status_item.setForeground(QColor("#2ecc71"))  # Zielony
-        elif status == "W trakcie":
-            status_item.setBackground(QColor("#fff8e6"))  # Jasny pomarańczowy
-            status_item.setForeground(QColor("#f39c12"))  # Pomarańczowy
-        elif status == "Anulowana" or status == "Przeterminowany":
-            status_item.setBackground(QColor("#fde9e9"))  # Jasny czerwony
-            status_item.setForeground(QColor("#e74c3c"))  # Czerwony
-        
-        self.setItem(row, 3, status_item)
-        
-        # Przycisk akcji
-        actions_widget = QWidget()
-        actions_layout = QHBoxLayout(actions_widget)
-        actions_layout.setContentsMargins(5, 0, 5, 0)
-        actions_layout.setSpacing(5)
-        
-        details_button = QPushButton()
-        details_button.setIcon(QIcon(os.path.join(ICONS_DIR, "details.png")))
-        details_button.setToolTip("Szczegóły")
-        details_button.setFixedSize(30, 30)
-        details_button.setStyleSheet("""
-            QPushButton {
-                background-color: #f0f0f0;
-                border-radius: 15px;
-                padding: 3px;
-            }
-            QPushButton:hover {
-                background-color: #e0e0e0;
-            }
-        """)
-        
-        # Tagujemy przyciski z numerem wiersza
-        details_button.setProperty("row", row)
-        details_button.clicked.connect(lambda: self._show_details(self.sender().property("row")))
-        
-        actions_layout.addWidget(details_button)
-        
-        self.setCellWidget(row, 4, actions_widget)
-    
-    def _show_details(self, row):
-        """
-        Pokazuje szczegóły akcji z wybranego wiersza.
-        
-        Args:
-            row (int): Numer wiersza
-        """
-        if row is None:
-            return
-            
-        date = self.item(row, 0).text()
-        type_action = self.item(row, 1).text()
-        description = self.item(row, 2).text()
-        status = self.item(row, 3).text()
-        
-        # Emitujemy sygnał ze szczegółami
-        self.details_requested.emit(date, type_action, description, status)
-    
-    def _show_context_menu(self, position):
-        """
-        Pokazuje menu kontekstowe.
-        
-        Args:
-            position (QPoint): Pozycja kursora
-        """
-        menu = QMenu(self)
-        
-        details_action = QAction("Szczegóły", self)
-        export_action = QAction("Eksportuj", self)
-        refresh_action = QAction("Odśwież", self)
-        
-        menu.addAction(details_action)
-        menu.addAction(export_action)
-        menu.addSeparator()
-        menu.addAction(refresh_action)
-        
-        # Podłącz akcje
-        selected_row = self.currentRow()
-        if selected_row >= 0:
-            details_action.triggered.connect(lambda: self._show_details(selected_row))
-        else:
-            details_action.setEnabled(False)
-            
-        export_action.triggered.connect(self._export_data)
-        refresh_action.triggered.connect(self.refresh_requested.emit)
-        
-        # Pokaż menu
-        menu.exec_(self.mapToGlobal(position))
-    
-    def _export_data(self):
-        """Eksport danych z tabeli."""
-        # W rzeczywistej aplikacji dodalibyśmy kod do eksportu
-        print("Eksport danych...")
 
 class DashboardTab(QWidget):
     """
-    Rozbudowana zakładka pulpitu wyświetlająca podsumowanie kluczowych informacji.
+    Zakładka pulpitu wyświetlająca podsumowanie kluczowych informacji.
     """
     
     tab_change_requested = Signal(str)  # Sygnał do zmiany zakładki
-    action_requested = Signal(str)      # Sygnał do wykonania akcji
+    action_requested = Signal(str, object)  # Sygnał do wykonania akcji z opcjonalnym parametrem
     
     def __init__(self, db_connection):
         """
@@ -1577,36 +351,67 @@ class DashboardTab(QWidget):
         # Inicjalizacja interfejsu użytkownika
         self.init_ui()
         
-        # Odświeżenie danych
+        # Timer do automatycznego odświeżania danych co 5 minut
+        self.refresh_timer = QTimer(self)
+        self.refresh_timer.timeout.connect(self.refresh_data)
+        self.refresh_timer.start(300000)  # 5 minut = 300000 ms
+        
+        # Odświeżenie danych początkowych
         self.refresh_data()
     
     def init_ui(self):
         """Inicjalizacja interfejsu użytkownika zakładki."""
-        # Główny układ
+        # Główny układ z marginesami
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(20, 20, 20, 20)
         main_layout.setSpacing(20)
         
-        # Górny pasek (powitanie, wyszukiwarka, data)
-        top_bar_layout = QHBoxLayout()
+        # 1. GÓRNA SEKCJA - powitanie, wyszukiwarka, data
+        self.create_top_section(main_layout)
         
-        # Powitanie
-        welcome_frame = QFrame()
-        welcome_frame.setStyleSheet("""
-            QFrame {
-                background-color: white;
+        # 2. ŚRODKOWA SEKCJA - statystyki i szybkie akcje
+        self.create_middle_section(main_layout)
+        
+        # 3. DOLNA SEKCJA - wizyty i ostatnie działania
+        self.create_bottom_section(main_layout)
+
+        # Ustaw tło całego widgetu na ciemny kolor
+        self.setStyleSheet(f"""
+            DashboardTab {{
+                background-color: {DARK_COLORS['background']};
+                color: {DARK_COLORS['text_primary']};
+            }}
+        """)
+    
+
+    
+    def create_frame(self):
+        """Tworzy ramkę z cieniem."""
+        frame = QFrame()
+        frame.setStyleSheet(f"""
+            QFrame {{
+                background-color: {DARK_COLORS['card_background']};
                 border-radius: 10px;
                 padding: 10px;
-            }
+                color: {DARK_COLORS['text_primary']};
+                border: 1px solid {DARK_COLORS['border']};
+            }}
         """)
-        welcome_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         
-        shadow = QGraphicsDropShadowEffect(welcome_frame)
+        shadow = QGraphicsDropShadowEffect(frame)
         shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 30))
+        shadow.setColor(QColor(0, 0, 0, 50))
         shadow.setOffset(0, 3)
-        welcome_frame.setGraphicsEffect(shadow)
+        frame.setGraphicsEffect(shadow)
         
+        return frame
+    
+    def create_top_section(self, parent_layout):
+        """Tworzy górną sekcję z powitaniem, wyszukiwarką i datą."""
+        top_bar_layout = QHBoxLayout()
+        
+        # Panel powitalny
+        welcome_frame = self.create_frame()
         welcome_layout = QHBoxLayout(welcome_frame)
         
         # Logo
@@ -1620,473 +425,752 @@ class DashboardTab(QWidget):
         # Tekst powitania
         greeting_layout = QVBoxLayout()
         
-        welcome_label = QLabel("Witaj w Menadżerze Depozytów Opon!")
+        # Dynamiczne powitanie zależne od pory dnia
+        hour = datetime.now().hour
+        if hour < 12:
+            greeting = "Dzień dobry!"
+        elif hour < 18:
+            greeting = "Witaj ponownie!"
+        else:
+            greeting = "Dobry wieczór!"
+            
+        welcome_label = QLabel(f"{greeting} Serwis Opon MATEO")
         welcome_label.setFont(QFont("Segoe UI", 14, QFont.Bold))
         welcome_label.setStyleSheet("color: #2c3e50;")
         greeting_layout.addWidget(welcome_label)
         
-        sub_welcome_label = QLabel("Twój serwis opon działa sprawnie")
-        sub_welcome_label.setFont(QFont("Segoe UI", 10))
-        sub_welcome_label.setStyleSheet("color: #7f8c8d;")
-        greeting_layout.addWidget(sub_welcome_label)
+        # Dodajemy informację o dzisiejszych wizytach
+        self.today_appointments_label = QLabel("Ładowanie danych...")
+        self.today_appointments_label.setFont(QFont("Segoe UI", 10))
+        self.today_appointments_label.setStyleSheet("color: #7f8c8d;")
+        greeting_layout.addWidget(self.today_appointments_label)
         
         welcome_layout.addLayout(greeting_layout)
-        
         top_bar_layout.addWidget(welcome_frame)
         
         # Wyszukiwarka
-        search_bar = SearchBarWidget()
-        search_bar.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-        search_bar.setFixedWidth(300)
-        top_bar_layout.addWidget(search_bar)
+        search_frame = self.create_frame()
+        search_layout = QHBoxLayout(search_frame)
         
-        # Data
-        date_frame = QFrame()
-        date_frame.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border-radius: 10px;
-                padding: 15px;
+        search_icon = QLabel()
+        search_icon_path = os.path.join(ICONS_DIR, "search.png")
+        if os.path.exists(search_icon_path):
+            pixmap = QPixmap(search_icon_path).scaled(16, 16, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            search_icon.setPixmap(pixmap)
+        search_layout.addWidget(search_icon)
+        
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("Szukaj klientów, opon, depozytów...")
+        self.search_input.setFont(QFont("Segoe UI", 10))
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                border: none;
+                padding: 5px;
             }
         """)
-        date_frame.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.search_input.returnPressed.connect(self.perform_search)
+        search_layout.addWidget(self.search_input)
         
-        shadow = QGraphicsDropShadowEffect(date_frame)
-        shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 30))
-        shadow.setOffset(0, 3)
-        date_frame.setGraphicsEffect(shadow)
+        top_bar_layout.addWidget(search_frame)
         
+        # Dzisiejsza data
+        date_frame = self.create_frame()
         date_layout = QVBoxLayout(date_frame)
         date_layout.setAlignment(Qt.AlignCenter)
         
-        day_label = QLabel(datetime.now().strftime("%d"))
+        now = datetime.now()
+        
+        # Dzień miesiąca (duży)
+        day_label = QLabel(now.strftime("%d"))
         day_label.setFont(QFont("Segoe UI", 24, QFont.Bold))
         day_label.setStyleSheet("color: #e74c3c;")
         day_label.setAlignment(Qt.AlignCenter)
         date_layout.addWidget(day_label)
         
-        month_year_label = QLabel(datetime.now().strftime("%b %Y"))
+        # Miesiąc i rok
+        month_year_label = QLabel(now.strftime("%b %Y"))
         month_year_label.setFont(QFont("Segoe UI", 12))
         month_year_label.setStyleSheet("color: #7f8c8d;")
         month_year_label.setAlignment(Qt.AlignCenter)
         date_layout.addWidget(month_year_label)
         
+        # Dzień tygodnia (polskie nazwy)
+        weekdays = ["Poniedziałek", "Wtorek", "Środa", "Czwartek", "Piątek", "Sobota", "Niedziela"]
+        weekday = weekdays[now.weekday()]
+        weekday_label = QLabel(weekday)
+        weekday_label.setFont(QFont("Segoe UI", 10))
+        weekday_label.setStyleSheet("color: #7f8c8d;")
+        weekday_label.setAlignment(Qt.AlignCenter)
+        date_layout.addWidget(weekday_label)
+        
         top_bar_layout.addWidget(date_frame)
         
-        main_layout.addLayout(top_bar_layout)
+        # Dodanie układu do głównego layoutu
+        parent_layout.addLayout(top_bar_layout)
+    
+    def create_middle_section(self, parent_layout):
+        """Tworzy środkową sekcję z kafelkami statystyk i szybkimi akcjami."""
+        middle_section_layout = QHBoxLayout()
         
-        # Środkowa sekcja (karty statystyk i przyciski szybkich akcji)
-        mid_section_layout = QHBoxLayout()
+        # 1. Kafelki statystyk (lewa strona)
+        stats_grid = QGridLayout()
+        stats_grid.setSpacing(15)
         
-        # Widgety statystyk
-        stats_layout = QGridLayout()
-        stats_layout.setSpacing(15)
-        
-        # Widgets do statystyk z animacją
-        self.clients_widget = AnimatedDashboardWidget(
-            "Klienci", "0", 
-            os.path.join(ICONS_DIR, "client.png"), 
+        # Kafelek - Klienci
+        self.clients_stat = StatWidget(
+            "Klienci", "0",
+            os.path.join(ICONS_DIR, "client.png"),
             "#3498db"
         )
-        stats_layout.addWidget(self.clients_widget, 0, 0)
+        self.clients_stat.clicked.connect(lambda: self.tab_change_requested.emit("clients"))
+        stats_grid.addWidget(self.clients_stat, 0, 0)
         
-        self.deposits_widget = AnimatedDashboardWidget(
-            "Depozyty", "0", 
-            os.path.join(ICONS_DIR, "tire.png"), 
+        # Kafelek - Depozyty
+        self.deposits_stat = StatWidget(
+            "Aktywne depozyty", "0",
+            os.path.join(ICONS_DIR, "tire.png"),
             "#2ecc71"
         )
-        stats_layout.addWidget(self.deposits_widget, 0, 1)
+        self.deposits_stat.clicked.connect(lambda: self.tab_change_requested.emit("deposits"))
+        stats_grid.addWidget(self.deposits_stat, 0, 1)
         
-        self.inventory_widget = AnimatedDashboardWidget(
-            "Opony na stanie", "0", 
-            os.path.join(ICONS_DIR, "inventory.png"), 
+        # Kafelek - Opony na stanie
+        self.inventory_stat = StatWidget(
+            "Opony na stanie", "0",
+            os.path.join(ICONS_DIR, "inventory.png"),
             "#f39c12"
         )
-        stats_layout.addWidget(self.inventory_widget, 1, 0)
+        self.inventory_stat.clicked.connect(lambda: self.tab_change_requested.emit("inventory"))
+        stats_grid.addWidget(self.inventory_stat, 1, 0)
         
-        self.appointments_widget = AnimatedDashboardWidget(
-            "Najbliższe wizyty", "0", 
-            os.path.join(ICONS_DIR, "calendar.png"), 
+        # Kafelek - Nadchodzące wizyty
+        self.appointments_stat = StatWidget(
+            "Zaplanowane wizyty", "0",
+            os.path.join(ICONS_DIR, "calendar.png"),
             "#e74c3c"
         )
-        stats_layout.addWidget(self.appointments_widget, 1, 1)
+        self.appointments_stat.clicked.connect(lambda: self.tab_change_requested.emit("schedule"))
+        stats_grid.addWidget(self.appointments_stat, 1, 1)
         
-        mid_section_layout.addLayout(stats_layout, 2)
+        # Kafelek - Części/akcesoria
+        self.parts_stat = StatWidget(
+            "Części i akcesoria", "0",
+            os.path.join(ICONS_DIR, "parts.png"),
+            "#9b59b6"
+        )
+        self.parts_stat.clicked.connect(lambda: self.tab_change_requested.emit("parts"))
+        stats_grid.addWidget(self.parts_stat, 2, 0, 1, 2)  # Zajmuje 2 kolumny
         
-        # Przyciski szybkich akcji i pogoda
-        quick_actions_layout = QVBoxLayout()
-        quick_actions_layout.setSpacing(15)
+        middle_section_layout.addLayout(stats_grid, 3)  # Proporcja 3
         
-        # Pogoda
-        weather_widget = WeatherWidget()
-        quick_actions_layout.addWidget(weather_widget)
+        # 2. Przyciski szybkich akcji i wykresy (prawa strona)
+        right_panel_layout = QVBoxLayout()
         
         # Przyciski szybkich akcji
-        quick_actions_frame = QFrame()
-        quick_actions_frame.setStyleSheet("""
-            QFrame {
-                background-color: white;
-                border-radius: 10px;
-                padding: 10px;
-            }
-        """)
+        action_buttons_frame = self.create_frame()
+        action_buttons_frame.setMinimumHeight(180)
+        action_buttons_layout = QVBoxLayout(action_buttons_frame)
         
-        shadow = QGraphicsDropShadowEffect(quick_actions_frame)
-        shadow.setBlurRadius(10)
-        shadow.setColor(QColor(0, 0, 0, 30))
-        shadow.setOffset(0, 3)
-        quick_actions_frame.setGraphicsEffect(shadow)
+        # Tytuł sekcji
+        actions_title = QLabel("Szybkie akcje")
+        actions_title.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        actions_title.setStyleSheet("color: #2c3e50;")
+        action_buttons_layout.addWidget(actions_title)
         
-        quick_buttons_layout = QVBoxLayout(quick_actions_frame)
-        
-        # Tytuł
-        quick_actions_title = QLabel("Szybkie akcje")
-        quick_actions_title.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        quick_actions_title.setStyleSheet("color: #2c3e50;")
-        quick_buttons_layout.addWidget(quick_actions_title)
+        # Siatka przycisków
+        actions_grid = QGridLayout()
+        actions_grid.setSpacing(10)
         
         # Przyciski
-        buttons_grid = QGridLayout()
-        buttons_grid.setSpacing(10)
+        add_client_btn = ActionButton("Dodaj klienta", os.path.join(ICONS_DIR, "add-client.png"), "#3498db")
+        add_client_btn.clicked.connect(self.add_client)
+        actions_grid.addWidget(add_client_btn, 0, 0)
         
-        add_client_button = ActionButtonWidget(
-            "Dodaj klienta", os.path.join(ICONS_DIR, "add_client.png"), "#3498db"
-        )
-        buttons_grid.addWidget(add_client_button, 0, 0)
+        add_deposit_btn = ActionButton("Nowy depozyt", os.path.join(ICONS_DIR, "add.png"), "#2ecc71")
+        add_deposit_btn.clicked.connect(self.add_deposit)
+        actions_grid.addWidget(add_deposit_btn, 0, 1)
         
-        add_deposit_button = ActionButtonWidget(
-            "Nowy depozyt", os.path.join(ICONS_DIR, "add_deposit.png"), "#2ecc71"
-        )
-        buttons_grid.addWidget(add_deposit_button, 0, 1)
+        add_appointment_btn = ActionButton("Zaplanuj wizytę", os.path.join(ICONS_DIR, "calendar.png"), "#e74c3c")
+        add_appointment_btn.clicked.connect(self.add_appointment)
+        actions_grid.addWidget(add_appointment_btn, 1, 0)
         
-        add_appointment_button = ActionButtonWidget(
-            "Zaplanuj wizytę", os.path.join(ICONS_DIR, "add_appointment.png"), "#e74c3c"
-        )
-        buttons_grid.addWidget(add_appointment_button, 1, 0)
+        generate_report_btn = ActionButton("Generuj raport", os.path.join(ICONS_DIR, "chart.png"), "#9b59b6")
+        generate_report_btn.clicked.connect(self.generate_report)
+        actions_grid.addWidget(generate_report_btn, 1, 1)
         
-        generate_report_button = ActionButtonWidget(
-            "Generuj raport", os.path.join(ICONS_DIR, "report.png"), "#9b59b6"
-        )
-        buttons_grid.addWidget(generate_report_button, 1, 1)
+        action_buttons_layout.addLayout(actions_grid)
+        right_panel_layout.addWidget(action_buttons_frame)
         
-        quick_buttons_layout.addLayout(buttons_grid)
+        # Wykres - Zajętość magazynu
+        storage_chart_frame = self.create_frame()
+        storage_chart_layout = QVBoxLayout(storage_chart_frame)
         
-        quick_actions_layout.addWidget(quick_actions_frame)
+        storage_title = QLabel("Zajętość magazynu")
+        storage_title.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        storage_title.setStyleSheet("color: #2c3e50;")
+        storage_chart_layout.addWidget(storage_title)
         
-        mid_section_layout.addLayout(quick_actions_layout, 1)
+        # Kontener na wykres
+        self.storage_chart_container = QWidget()
+        self.storage_chart_container.setMinimumHeight(150)
+        self.storage_chart_layout = QVBoxLayout(self.storage_chart_container)
+        storage_chart_layout.addWidget(self.storage_chart_container)
         
-        main_layout.addLayout(mid_section_layout)
+        right_panel_layout.addWidget(storage_chart_frame)
         
-        # Dolna sekcja
+        middle_section_layout.addLayout(right_panel_layout, 2)  # Proporcja 2
+        
+        # Dodanie układu do głównego layoutu
+        parent_layout.addLayout(middle_section_layout)
+    
+    def create_bottom_section(self, parent_layout):
+        """Tworzy dolną sekcję z nadchodzącymi wizytami i ostatnimi działaniami."""
         bottom_section_layout = QHBoxLayout()
         
-        # Nadchodzące wizyty
-        upcoming_appointments = UpcomingAppointmentsWidget()
-        bottom_section_layout.addWidget(upcoming_appointments, 1)
+        # 1. Nadchodzące wizyty (lewa strona)
+        appointments_frame = self.create_frame()
+        appointments_layout = QVBoxLayout(appointments_frame)
         
-        # Aktywności
-        activities_layout = QVBoxLayout()
+        # Tytuł z przyciskiem "Zobacz wszystkie"
+        appointments_header = QHBoxLayout()
         
-        activities_header = QHBoxLayout()
+        appointments_title = QLabel("Nadchodzące wizyty")
+        appointments_title.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        appointments_title.setStyleSheet("color: #2c3e50;")
+        appointments_header.addWidget(appointments_title)
         
-        activities_label = QLabel("Ostatnie działania")
-        activities_label.setFont(QFont("Segoe UI", 12, QFont.Bold))
-        activities_label.setStyleSheet("color: #2c3e50;")
-        activities_header.addWidget(activities_label)
-        
-        filter_combo = QComboBox()
-        filter_combo.addItems(["Wszystkie", "Klienci", "Depozyty", "Wizyty"])
-        filter_combo.setStyleSheet("""
-            QComboBox {
-                background-color: white;
-                border: 1px solid #ddd;
-                border-radius: 5px;
-                padding: 5px;
-                min-width: 100px;
+        view_all_btn = QPushButton("Zobacz wszystkie")
+        view_all_btn.setStyleSheet("""
+            QPushButton {
+                background-color: transparent;
+                color: #3498db;
+                border: none;
             }
-            QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 20px;
-                border-left: 1px solid #ddd;
+            QPushButton:hover {
+                text-decoration: underline;
             }
         """)
-        activities_header.addWidget(filter_combo, alignment=Qt.AlignRight)
+        view_all_btn.setCursor(QCursor(Qt.PointingHandCursor))
+        view_all_btn.clicked.connect(lambda: self.tab_change_requested.emit("schedule"))
+        appointments_header.addWidget(view_all_btn, alignment=Qt.AlignRight)
+        
+        appointments_layout.addLayout(appointments_header)
+        
+        # Tabela nadchodzących wizyt
+        self.appointments_table = QTableWidget()
+        self.appointments_table.setColumnCount(4)
+        self.appointments_table.setHorizontalHeaderLabels(["Klient", "Usługa", "Data i godzina", "Status"])
+        self.appointments_table.setStyleSheet("""
+            QTableWidget {
+                border: none;
+                background-color: white;
+            }
+            QTableWidget::item {
+                padding: 5px;
+            }
+            QHeaderView::section {
+                background-color: #f8f9fa;
+                padding: 5px;
+                border: none;
+                border-bottom: 1px solid #3498db;
+                font-weight: bold;
+                color: #2c3e50;
+            }
+        """)
+        # Ustawienia tabeli
+        self.appointments_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.appointments_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.appointments_table.setShowGrid(False)
+        self.appointments_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.appointments_table.setAlternatingRowColors(True)
+        
+        self.appointments_table.doubleClicked.connect(self.view_appointment_details)
+        
+        appointments_layout.addWidget(self.appointments_table)
+        
+        bottom_section_layout.addWidget(appointments_frame)
+        
+        # 2. Ostatnie działania (prawa strona)
+        activities_frame = self.create_frame()
+        activities_layout = QVBoxLayout(activities_frame)
+        
+        # Tytuł z filtrem
+        activities_header = QHBoxLayout()
+        
+        activities_title = QLabel("Ostatnie działania")
+        activities_title.setFont(QFont("Segoe UI", 12, QFont.Bold))
+        activities_title.setStyleSheet("color: #2c3e50;")
+        activities_header.addWidget(activities_title)
+        
+        # Filtr typów działań
+        self.activities_filter = QComboBox()
+        self.activities_filter.addItems(["Wszystkie", "Klienci", "Depozyty", "Wizyty"])
+        self.activities_filter.setStyleSheet("""
+            QComboBox {
+                border: 1px solid #ddd;
+                border-radius: 4px;
+                padding: 2px 8px;
+                min-width: 120px;
+            }
+        """)
+        self.activities_filter.currentIndexChanged.connect(self.filter_activities)
+        activities_header.addWidget(self.activities_filter, alignment=Qt.AlignRight)
         
         activities_layout.addLayout(activities_header)
         
         # Tabela ostatnich działań
-        self.recent_actions_table = RecentActivitiesWidget()
-        activities_layout.addWidget(self.recent_actions_table)
+        self.activities_table = QTableWidget()
+        self.activities_table.setColumnCount(4)
+        self.activities_table.setHorizontalHeaderLabels(["Data", "Typ", "Opis", "Status"])
+        self.activities_table.setStyleSheet("""
+            QTableWidget {
+                border: none;
+                background-color: white;
+            }
+            QTableWidget::item {
+                padding: 5px;
+            }
+            QHeaderView::section {
+                background-color: #3498db;
+                padding: 5px;
+                border: none;
+                font-weight: bold;
+                color: white;
+            }
+        """)
         
-        bottom_section_layout.addLayout(activities_layout, 2)
+        # Ustawienia tabeli
+        self.activities_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.activities_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.activities_table.setShowGrid(False)
+        self.activities_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)  # Data
+        self.activities_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)  # Typ
+        self.activities_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)           # Opis
+        self.activities_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)  # Status
+        self.activities_table.setAlternatingRowColors(True)
         
-        main_layout.addLayout(bottom_section_layout)
+        self.activities_table.doubleClicked.connect(self.view_activity_details)
         
-        # Połączenie zdarzeń
-        self.clients_widget.clicked.connect(lambda: self._show_tab("clients"))
-        self.deposits_widget.clicked.connect(lambda: self._show_tab("deposits"))
-        self.inventory_widget.clicked.connect(lambda: self._show_tab("inventory"))
-        self.appointments_widget.clicked.connect(lambda: self._show_tab("appointments"))
+        activities_layout.addWidget(self.activities_table)
         
-        add_client_button.clicked.connect(self._add_client)
-        add_deposit_button.clicked.connect(self._add_deposit)
-        add_appointment_button.clicked.connect(self._add_appointment)
-        generate_report_button.clicked.connect(self._generate_report)
+        bottom_section_layout.addWidget(activities_frame)
         
-        upcoming_appointments.view_all_requested.connect(lambda: self._show_tab("appointments"))
+        # Dodanie układu do głównego layoutu
+        parent_layout.addLayout(bottom_section_layout)
+    
+    def create_pie_chart(self, data, colors=None):
+        """
+        Tworzy wykres kołowy.
         
-        self.recent_actions_table.details_requested.connect(self._show_action_details)
-        self.recent_actions_table.refresh_requested.connect(self.refresh_data)
+        Args:
+            data (dict): Dane w formacie {etykieta: wartość}
+            colors (list, optional): Lista kolorów. Domyślnie None.
+            
+        Returns:
+            QChartView: Widget z wykresem
+        """
+        # Przygotowanie wykresu
+        chart = QChart()
+        chart.setTitle("")
+        chart.setAnimationOptions(QChart.SeriesAnimations)
+        chart.legend().setVisible(True)
+        chart.legend().setAlignment(Qt.AlignBottom)
         
-        search_bar.search_requested.connect(self._search)
-        filter_combo.currentTextChanged.connect(self._filter_activities)
+        # Seria danych
+        series = QPieSeries()
+        
+        # Domyślne kolory
+        if colors is None:
+            colors = ['#3498db', '#2ecc71', '#e74c3c', '#f39c12', '#9b59b6']
+        
+        # Suma wartości dla procentów
+        total = sum(data.values())
+        
+        # Dodaj elementy do serii
+        for i, (label, value) in enumerate(data.items()):
+            slice = series.append(label, value)
+            slice.setLabelVisible(True)
+            
+            # Oblicz procent
+            if total > 0:
+                percent = (value / total) * 100
+                slice.setLabel(f"{label}: {percent:.1f}%")
+            else:
+                slice.setLabel(f"{label}: 0%")
+                
+            # Ustaw kolor
+            slice.setBrush(QColor(colors[i % len(colors)]))
+        
+        chart.addSeries(series)
+        
+        # Utwórz widok wykresu
+        chart_view = QChartView(chart)
+        chart_view.setRenderHint(QPainter.Antialiasing)
+        
+        return chart_view
     
     def refresh_data(self):
         """Odświeża dane na pulpicie."""
         try:
             cursor = self.conn.cursor()
             
-            # Aktualizacja liczby klientów
+            # ------------------------
+            # 1. Aktualizacja statystyk
+            # ------------------------
+            
+            # Liczba klientów
             cursor.execute("SELECT COUNT(*) FROM clients")
             clients_count = cursor.fetchone()[0]
-            self.clients_widget.set_value(str(clients_count))
+            self.clients_stat.set_value(str(clients_count))
             
-            # Dodaj informację o trendzie (przykładowo +5.2% wzrost)
-            self.clients_widget.set_trend(5.2)
+            # Sprawdź wzrost/spadek liczby klientów w ostatnim miesiącu
+            try:
+                # Pobierz datę ostatniej aktualizacji (zakładając, że mamy tabelę z historią)
+                one_month_ago = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+                
+                # W prawdziwej implementacji powinniśmy sprawdzić historię
+                # Na potrzeby przykładu używamy stałej wartości
+                clients_growth = 5.2
+                self.clients_stat.set_trend(clients_growth)
+            except Exception as e:
+                logger.warning(f"Błąd podczas obliczania trendu klientów: {e}")
+                self.clients_stat.set_info_text("Kliknij, aby zobaczyć szczegóły")
             
-            # Aktualizacja liczby depozytów
+            # Liczba aktywnych depozytów
             cursor.execute("SELECT COUNT(*) FROM deposits WHERE status = 'Aktywny'")
             deposits_count = cursor.fetchone()[0]
-            self.deposits_widget.set_value(str(deposits_count))
-            self.deposits_widget.set_trend(2.8)
+            self.deposits_stat.set_value(str(deposits_count))
             
-            # Aktualizacja liczby opon na stanie
-            cursor.execute("SELECT COUNT(*) FROM inventory")
-            inventory_count = cursor.fetchone()[0]
-            self.inventory_widget.set_value(str(inventory_count))
-            self.inventory_widget.set_trend(-1.5)
+            # Przykładowy trend
+            self.deposits_stat.set_trend(2.8)
             
-            # Aktualizacja liczby najbliższych wizyt
+            # Liczba opon na stanie
+            try:
+                cursor.execute("SELECT SUM(quantity) FROM inventory")
+                inventory_count = cursor.fetchone()[0] or 0
+                self.inventory_stat.set_value(str(inventory_count))
+                
+                # Przykładowy trend (spadek)
+                self.inventory_stat.set_trend(-1.5)
+            except Exception as e:
+                logger.warning(f"Błąd podczas obliczania opon na stanie: {e}")
+                self.inventory_stat.set_value("0")
+                self.inventory_stat.set_info_text("Brak danych")
+            
+            # Liczba zaplanowanych wizyt
             today = datetime.now().date()
             cursor.execute("""
                 SELECT COUNT(*) FROM appointments 
                 WHERE appointment_date >= ? AND status != 'Anulowana'
             """, (today.strftime("%Y-%m-%d"),))
             appointments_count = cursor.fetchone()[0]
-            self.appointments_widget.set_value(str(appointments_count))
-            self.appointments_widget.set_trend(10.0)
+            self.appointments_stat.set_value(str(appointments_count))
             
-            # Ładowanie ostatnich działań
-            self.load_recent_actions()
+            # Przykładowy trend
+            self.appointments_stat.set_trend(10.0)
             
-        except Exception as e:
-            logger.error(f"Błąd podczas odświeżania danych pulpitu: {e}")
-    
-    def load_recent_actions(self):
-        """Ładuje listę ostatnich działań z różnych tabel."""
-        try:
-            cursor = self.conn.cursor()
+            # Części i akcesoria
+            try:
+                cursor.execute("SELECT SUM(quantity) FROM parts")
+                parts_count = cursor.fetchone()[0] or 0
+                self.parts_stat.set_value(str(parts_count))
+                
+                # Sprawdź ile produktów ma stan poniżej minimum
+                cursor.execute("SELECT COUNT(*) FROM parts WHERE quantity < minimum_quantity")
+                low_stock_count = cursor.fetchone()[0]
+                
+                if low_stock_count > 0:
+                    self.parts_stat.set_info_text(
+                        f"{low_stock_count} produkt{'y' if 2 <= low_stock_count <= 4 else 'ów' if low_stock_count >= 5 else ''} poniżej minimalnego stanu",
+                        "rgba(231, 76, 60, 0.8)"
+                    )
+                else:
+                    self.parts_stat.set_info_text("Wszystkie stany magazynowe są optymalne", "rgba(46, 204, 113, 0.8)")
+            except Exception as e:
+                logger.warning(f"Błąd podczas obliczania części na stanie: {e}")
+                self.parts_stat.set_value("0")
+                self.parts_stat.set_info_text("Brak danych")
             
-            # Pobierz ostatnie działania z różnych tabel
+            # ------------------------
+            # 2. Aktualizacja informacji o dzisiejszych wizytach
+            # ------------------------
+            today_str = today.strftime("%Y-%m-%d")
             cursor.execute("""
-                SELECT 'Klient' as type, name as description, 'Dodano' as status, 
-                       created_at as date
-                FROM clients 
-                ORDER BY created_at DESC 
-                LIMIT 5
+                SELECT COUNT(*) FROM appointments 
+                WHERE appointment_date = ? AND status != 'Anulowana'
+            """, (today_str,))
+            today_appointments = cursor.fetchone()[0]
+            
+            if today_appointments > 0:
+                self.today_appointments_label.setText(
+                    f"Masz {today_appointments} wizyt{'y' if 2 <= today_appointments <= 4 else '' if today_appointments == 1 else 'ę'} zaplanowanych na dzisiaj"
+                )
+            else:
+                self.today_appointments_label.setText("Brak wizyt zaplanowanych na dzisiaj")
+            
+            # ------------------------
+            # 3. Aktualizacja wykresu zajętości magazynu
+            # ------------------------
+            # Najpierw wyczyść układ wykresu
+            for i in reversed(range(self.storage_chart_layout.count())): 
+                self.storage_chart_layout.itemAt(i).widget().setParent(None)
+            
+            # Pobierz dane o zajętości magazynu
+            try:
+                cursor.execute("SELECT SUM(used) as used, SUM(capacity) as capacity FROM locations")
+                storage_data = cursor.fetchone()
                 
-                UNION ALL
-                
-                SELECT 'Wizyta', service_type, status, appointment_date
-                FROM appointments 
-                ORDER BY appointment_date DESC 
-                LIMIT 5
-                
-                UNION ALL
-                
-                SELECT 'Depozyt', tire_brand || ' ' || tire_size, status, deposit_date
-                FROM deposits 
-                ORDER BY deposit_date DESC 
-                LIMIT 5
-                
-                ORDER BY date DESC
+                if storage_data and storage_data[1]:
+                    used = storage_data[0] or 0
+                    capacity = storage_data[1]
+                    free = max(0, capacity - used)
+                    
+                    # Tworzenie wykresu
+                    chart_data = {"Zajęte": used, "Wolne": free}
+                    chart = self.create_pie_chart(chart_data, ["#3498db", "#ecf0f1"])
+                    self.storage_chart_layout.addWidget(chart)
+                else:
+                    # Brak danych - pusty wykres lub informacja
+                    empty_label = QLabel("Brak danych o lokalizacjach magazynowych")
+                    empty_label.setAlignment(Qt.AlignCenter)
+                    empty_label.setStyleSheet("color: #7f8c8d;")
+                    self.storage_chart_layout.addWidget(empty_label)
+            except Exception as e:
+                logger.warning(f"Błąd podczas obliczania zajętości magazynu: {e}")
+                empty_label = QLabel("Wystąpił błąd podczas ładowania danych magazynowych")
+                empty_label.setAlignment(Qt.AlignCenter)
+                empty_label.setStyleSheet("color: #e74c3c;")
+                self.storage_chart_layout.addWidget(empty_label)
+            
+            # ------------------------
+            # 4. Aktualizacja tabeli nadchodzących wizyt
+            # ------------------------
+            # Wyczyść tabelę
+            self.appointments_table.setRowCount(0)
+            
+            # Pobierz najbliższe wizyty (dziś + jutro, maksymalnie 10)
+            tomorrow = (today + timedelta(days=1)).strftime("%Y-%m-%d")
+            cursor.execute("""
+                SELECT a.id, c.name, a.service_type, a.appointment_date, a.appointment_time, a.status
+                FROM appointments a
+                JOIN clients c ON a.client_id = c.id
+                WHERE a.appointment_date BETWEEN ? AND ? AND a.status != 'Anulowana'
+                ORDER BY a.appointment_date ASC, a.appointment_time ASC
                 LIMIT 10
-            """)
+            """, (today_str, tomorrow))
             
-            actions = cursor.fetchall()
+            appointments = cursor.fetchall()
             
-            # Czyszczenie tabeli
-            self.recent_actions_table.setRowCount(0)
-            
-            # Wypełnienie tabeli
-            for type_action, description, status, date in actions:
+            for row, (appointment_id, client_name, service_type, date, time, status) in enumerate(appointments):
+                self.appointments_table.insertRow(row)
+                
                 # Formatowanie daty
                 try:
                     date_obj = datetime.strptime(date, "%Y-%m-%d")
-                    formatted_date = date_obj.strftime("%d.%m.%Y")
-                except (ValueError, TypeError):
-                    formatted_date = date
+                    if date_obj.date() == today:
+                        date_str = f"Dzisiaj, {time}"
+                    else:
+                        date_str = f"Jutro, {time}"
+                except ValueError:
+                    date_str = f"{date}, {time}"
                 
                 # Dodaj dane do tabeli
-                self.recent_actions_table.add_action(
-                    formatted_date,
-                    type_action,
-                    description,
-                    status
-                )
+                self.appointments_table.setItem(row, 0, QTableWidgetItem(client_name))
+                self.appointments_table.setItem(row, 1, QTableWidgetItem(service_type))
+                self.appointments_table.setItem(row, 2, QTableWidgetItem(date_str))
+                
+                # Status z kolorowym tłem
+                status_item = QTableWidgetItem(status)
+                
+                if status == "Zaplanowana":
+                    status_item.setBackground(QColor("#3498db"))
+                    status_item.setForeground(QColor("white"))
+                elif status == "W trakcie":
+                    status_item.setBackground(QColor("#f39c12"))
+                    status_item.setForeground(QColor("white"))
+                elif status == "Zakończona":
+                    status_item.setBackground(QColor("#2ecc71"))
+                    status_item.setForeground(QColor("white"))
+                
+                self.appointments_table.setItem(row, 3, status_item)
+                
+                # Dodaj ID wizyty jako dane w wierszu
+                self.appointments_table.setItem(row, 0, QTableWidgetItem(client_name)).setData(Qt.UserRole, appointment_id)
+            
+            # ------------------------
+            # 5. Aktualizacja tabeli ostatnich działań
+            # ------------------------
+            self.load_recent_activities()
+            
+            logger.debug("Odświeżono dane na pulpicie")
             
         except Exception as e:
-            logger.error(f"Błąd podczas ładowania ostatnich działań: {e}")
+            logger.error(f"Błąd podczas odświeżania danych na pulpicie: {e}")
+            NotificationManager.get_instance().show_notification(
+                f"Wystąpił błąd podczas odświeżania danych: {str(e)}",
+                NotificationTypes.ERROR
+            )
     
-    def _show_tab(self, tab_name):
-        """
-        Przełącza do wybranej zakładki.
-        
-        Args:
-            tab_name (str): Nazwa zakładki do pokazania
-        """
-        # Emitujemy sygnał ze zmianą zakładki
-        # Ten sygnał powinien być obsłużony przez główne okno aplikacji
-        self.tab_change_requested.emit(tab_name)
-        
-    def _add_client(self):
-        """Obsługuje dodawanie nowego klienta."""
-        self.action_requested.emit("add_client")
-        
-    def _add_deposit(self):
-        """Obsługuje dodawanie nowego depozytu."""
-        self.action_requested.emit("add_deposit")
-        
-    def _add_appointment(self):
-        """Obsługuje dodawanie nowej wizyty."""
-        self.action_requested.emit("add_appointment")
-        
-    def _generate_report(self):
-        """Obsługuje generowanie raportu."""
-        self.action_requested.emit("generate_report")
-        
-    def _show_action_details(self, date, type_action, description, status):
-        """
-        Pokazuje szczegóły wybranej akcji.
-        
-        Args:
-            date (str): Data akcji
-            type_action (str): Typ akcji
-            description (str): Opis akcji
-            status (str): Status akcji
-        """
-        # W rzeczywistej aplikacji, ta metoda wyświetlałaby dialog ze szczegółami
-        # lub przełączała do odpowiedniej zakładki z wybranym elementem
-        
-        # Przykładowa implementacja - wygenerowanie prostego dialogu ze szczegółami
-        dialog = QDialog(self)
-        dialog.setWindowTitle(f"{type_action} - Szczegóły")
-        dialog.setMinimumSize(400, 300)
-        
-        layout = QVBoxLayout(dialog)
-        
-        # Tytuł
-        title_label = QLabel(description)
-        title_label.setFont(QFont("Segoe UI", 14, QFont.Bold))
-        layout.addWidget(title_label)
-        
-        # Informacje
-        info_layout = QGridLayout()
-        
-        info_layout.addWidget(QLabel("Typ:"), 0, 0)
-        info_layout.addWidget(QLabel(type_action), 0, 1)
-        
-        info_layout.addWidget(QLabel("Data:"), 1, 0)
-        info_layout.addWidget(QLabel(date), 1, 1)
-        
-        info_layout.addWidget(QLabel("Status:"), 2, 0)
-        
-        status_label = QLabel(status)
-        if status == "Zakończona" or status == "Aktywny":
-            status_label.setStyleSheet("color: #2ecc71;")
-        elif status == "W trakcie":
-            status_label.setStyleSheet("color: #f39c12;")
-        elif status == "Anulowana" or status == "Przeterminowany":
-            status_label.setStyleSheet("color: #e74c3c;")
+    def load_recent_activities(self):
+        """Ładuje ostatnie działania z bazy danych."""
+        try:
+            cursor = self.conn.cursor()
             
-        info_layout.addWidget(status_label, 2, 1)
+            # Wyczyść tabelę
+            self.activities_table.setRowCount(0)
+            
+            # Kategoria filtra
+            filter_type = self.activities_filter.currentText()
+            
+            # Budowanie zapytania w zależności od filtra
+            query_parts = []
+            params = []
+            
+            # Pobranie ostatnich klientów
+            if filter_type in ["Wszystkie", "Klienci"]:
+                query_parts.append("""
+                    SELECT 'Klient' as type, name as description, 'Dodano' as status, 
+                           '2025-03-19' as date, id
+                    FROM clients 
+                    ORDER BY id DESC 
+                    LIMIT 5
+                """)
+            
+            # Pobranie ostatnich wizyt
+            if filter_type in ["Wszystkie", "Wizyty"]:
+                query_parts.append("""
+                    SELECT 'Wizyta' as type, service_type as description, status, 
+                           appointment_date as date, id
+                    FROM appointments
+                    ORDER BY id DESC 
+                    LIMIT 5
+                """)
+            
+            # Pobranie ostatnich depozytów
+            if filter_type in ["Wszystkie", "Depozyty"]:
+                query_parts.append("""
+                    SELECT 'Depozyt' as type, (tire_brand || ' ' || tire_size) as description, 
+                           status, deposit_date as date, id
+                    FROM deposits 
+                    ORDER BY id DESC 
+                    LIMIT 5
+                """)
+            
+            # Połączenie zapytań
+            if query_parts:
+                full_query = " UNION ALL ".join(query_parts) + " ORDER BY date DESC LIMIT 10"
+                
+                cursor.execute(full_query)
+                activities = cursor.fetchall()
+                
+                for row, (type_action, description, status, date, item_id) in enumerate(activities):
+                    self.activities_table.insertRow(row)
+                    
+                    # Formatowanie daty
+                    try:
+                        date_obj = datetime.strptime(date, "%Y-%m-%d")
+                        date_str = date_obj.strftime("%d.%m.%Y")
+                    except (ValueError, TypeError):
+                        date_str = date
+                    
+                    # Dodaj dane do tabeli
+                    self.activities_table.setItem(row, 0, QTableWidgetItem(date_str))
+                    self.activities_table.setItem(row, 1, QTableWidgetItem(type_action))
+                    self.activities_table.setItem(row, 2, QTableWidgetItem(description))
+                    
+                    # Status z kolorowym tłem
+                    status_item = QTableWidgetItem(status)
+                    
+                    if status in ["Zakończona", "Aktywny", "Dodano"]:
+                        status_item.setBackground(QColor("#e6f7ed"))  # Jasny zielony
+                        status_item.setForeground(QColor("#2ecc71"))  # Zielony
+                    elif status == "W trakcie":
+                        status_item.setBackground(QColor("#fff8e6"))  # Jasny pomarańczowy
+                        status_item.setForeground(QColor("#f39c12"))  # Pomarańczowy
+                    elif status in ["Anulowana", "Przeterminowany"]:
+                        status_item.setBackground(QColor("#fde9e9"))  # Jasny czerwony
+                        status_item.setForeground(QColor("#e74c3c"))  # Czerwony
+                    
+                    self.activities_table.setItem(row, 3, status_item)
+                    
+                    # Zapisz typ i ID jako dane
+                    self.activities_table.setItem(row, 0, QTableWidgetItem(date_str)).setData(Qt.UserRole, (type_action, item_id))
         
-        layout.addLayout(info_layout)
+        except Exception as e:
+            logger.error(f"Błąd podczas ładowania ostatnich działań: {e}")
+            # Możemy wyświetlić komunikat błędu w tabeli
+            self.activities_table.setRowCount(1)
+            self.activities_table.setSpan(0, 0, 1, 4)
+            error_item = QTableWidgetItem(f"Wystąpił błąd podczas ładowania danych: {str(e)}")
+            error_item.setForeground(QColor("#e74c3c"))
+            self.activities_table.setItem(0, 0, error_item)
+    
+    def filter_activities(self, index):
+        """Filtruje ostatnie działania według wybranego typu."""
+        self.load_recent_activities()
+    
+    def perform_search(self):
+        """Obsługuje wyszukiwanie globalne."""
+        search_text = self.search_input.text().strip()
+        if not search_text:
+            return
         
-        # Przykładowe szczegóły w zależności od typu
-        if type_action == "Klient":
-            client_info = QTextEdit()
-            client_info.setReadOnly(True)
-            client_info.setText("Informacje o kliencie:\n\n"
-                               f"Imię i nazwisko: {description}\n"
-                               "Telefon: +48 123 456 789\n"
-                               "Email: przykład@email.com\n"
-                               "Adres: ul. Przykładowa 123, 00-000 Miasto")
-            layout.addWidget(client_info)
-        elif type_action == "Depozyt":
-            deposit_info = QTextEdit()
-            deposit_info.setReadOnly(True)
-            deposit_info.setText("Informacje o depozycie:\n\n"
-                                f"Opony: {description}\n"
-                                "Liczba opon: 4\n"
-                                "Stan: Dobry\n"
-                                "Przebieg: 25000 km\n"
-                                "Klient: Jan Kowalski")
-            layout.addWidget(deposit_info)
-        elif type_action == "Wizyta":
-            visit_info = QTextEdit()
-            visit_info.setReadOnly(True)
-            visit_info.setText("Informacje o wizycie:\n\n"
-                              f"Usługa: {description}\n"
-                              f"Data: {date}\n"
-                              "Klient: Anna Nowak\n"
-                              "Samochód: Toyota Corolla\n"
-                              "Numer rejestracyjny: WA12345")
-            layout.addWidget(visit_info)
+        # Wyświetlamy powiadomienie o wyszukiwaniu
+        NotificationManager.get_instance().show_notification(
+            f"Wyszukiwanie: {search_text}",
+            NotificationTypes.INFO
+        )
         
-        # Przyciski
-        button_box = QDialogButtonBox(QDialogButtonBox.Ok)
-        button_box.accepted.connect(dialog.accept)
-        layout.addWidget(button_box)
+        # Przekierowujemy do odpowiedniej zakładki z parametrami wyszukiwania
+        # W rzeczywistej implementacji powinno to być obsługiwane przez główne okno
+        self.action_requested.emit("search", search_text)
+    
+    def add_client(self):
+        """Obsługuje dodawanie nowego klienta."""
+        self.action_requested.emit("add_client", None)
+    
+    def add_deposit(self):
+        """Obsługuje dodawanie nowego depozytu."""
+        self.action_requested.emit("add_deposit", None)
+    
+    def add_appointment(self):
+        """Obsługuje dodawanie nowej wizyty."""
+        self.action_requested.emit("add_appointment", None)
+    
+    def generate_report(self):
+        """Obsługuje generowanie raportu."""
+        # Tutaj można wyświetlić menu z wyborem typu raportu
+        menu = QMenu(self)
         
-        dialog.exec_()
+        clients_report_action = QAction("Raport klientów", self)
+        clients_report_action.triggered.connect(lambda: self.action_requested.emit("generate_report", "clients"))
+        menu.addAction(clients_report_action)
         
-    def _search(self, query):
-        """
-        Obsługuje wyszukiwanie.
+        deposits_report_action = QAction("Raport depozytów", self)
+        deposits_report_action.triggered.connect(lambda: self.action_requested.emit("generate_report", "deposits"))
+        menu.addAction(deposits_report_action)
         
-        Args:
-            query (str): Zapytanie wyszukiwania
-        """
-        # W rzeczywistej aplikacji, ta metoda przeprowadzałaby wyszukiwanie w bazie danych
-        # lub przełączała do widoku wyszukiwania z podanym zapytaniem
-        print(f"Wyszukiwanie: {query}")
+        inventory_report_action = QAction("Raport stanu magazynowego", self)
+        inventory_report_action.triggered.connect(lambda: self.action_requested.emit("generate_report", "inventory"))
+        menu.addAction(inventory_report_action)
         
-    def _filter_activities(self, filter_text):
-        """
-        Filtruje aktywności według wybranego typu.
-        
-        Args:
-            filter_text (str): Tekst filtrowania
-        """
-        # W rzeczywistej aplikacji, ta metoda filtrowałaby dane w tabeli
-        # Na potrzeby przykładu, symulujemy odświeżanie
-        
-        # Jeśli wybrano "Wszystkie", pokaż wszystkie typy
-        if filter_text == "Wszystkie":
-            for row in range(self.recent_actions_table.rowCount()):
-                self.recent_actions_table.setRowHidden(row, False)
-        else:
-            # W przeciwnym razie, pokaż tylko wybraną kategorię
-            for row in range(self.recent_actions_table.rowCount()):
-                item = self.recent_actions_table.item(row, 1)
-                if item:
-                    item_type = item.text()
-                    self.recent_actions_table.setRowHidden(
-                        row, 
-                        not (filter_text == item_type or 
-                            (filter_text == "Klienci" and item_type == "Klient") or
-                            (filter_text == "Wizyty" and item_type == "Wizyta"))
-                    )
+        menu.exec(QCursor.pos())
+    
+    def view_appointment_details(self, index):
+        """Obsługuje podgląd szczegółów wizyty."""
+        row = index.row()
+        item = self.appointments_table.item(row, 0)
+        if item:
+            appointment_id = item.data(Qt.UserRole)
+            if appointment_id:
+                self.action_requested.emit("view_appointment", appointment_id)
+    
+    def view_activity_details(self, index):
+        """Obsługuje podgląd szczegółów działania."""
+        row = index.row()
+        item = self.activities_table.item(row, 0)
+        if item:
+            data = item.data(Qt.UserRole)
+            if data:
+                activity_type, item_id = data
+                self.action_requested.emit("view_activity", (activity_type, item_id))
