@@ -62,22 +62,22 @@ class NotificationWidget(QFrame):
     
     def init_ui(self):
         """Inicjalizacja interfejsu użytkownika powiadomienia."""
-        # Ustawienie kolorów w zależności od typu powiadomienia
+        # Ustawienie kolorów i emotikon w zależności od typu powiadomienia
         if self.notification_type == NotificationTypes.INFO:
             background_color = "#3498db"
-            icon_path = os.path.join(ICONS_DIR, "info.png")
+            icon_text = "ℹ️"  # Emotikon info
         elif self.notification_type == NotificationTypes.SUCCESS:
             background_color = "#2ecc71"
-            icon_path = os.path.join(ICONS_DIR, "success.png")
+            icon_text = "✅"  # Emotikon sukcesu
         elif self.notification_type == NotificationTypes.WARNING:
             background_color = "#f39c12"
-            icon_path = os.path.join(ICONS_DIR, "warning.png")
+            icon_text = "⚠️"  # Emotikon ostrzeżenia
         elif self.notification_type == NotificationTypes.ERROR:
             background_color = "#e74c3c"
-            icon_path = os.path.join(ICONS_DIR, "error.png")
+            icon_text = "❌"  # Emotikon błędu
         else:
             background_color = "#2c3e50"
-            icon_path = os.path.join(ICONS_DIR, "info.png")
+            icon_text = "ℹ️"  # Emotikon info
         
         # Ustawienie StyleSheet
         self.setStyleSheet(f"""
@@ -94,13 +94,11 @@ class NotificationWidget(QFrame):
         main_layout = QHBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         
-        # Ikona
-        icon_label = QLabel()
-        if os.path.exists(icon_path):
-            pixmap = QPixmap(icon_path).scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            icon_label.setPixmap(pixmap)
-            icon_label.setFixedSize(32, 32)
-            icon_label.setAlignment(Qt.AlignCenter)
+        # Ikona z emotikonem
+        icon_label = QLabel(icon_text)
+        icon_label.setFont(QFont("Segoe UI", 16))  # Większa czcionka dla emotikona
+        icon_label.setFixedSize(32, 32)
+        icon_label.setAlignment(Qt.AlignCenter)
         main_layout.addWidget(icon_label)
         
         # Treść
@@ -351,27 +349,27 @@ class NotificationCenterWidget(QWidget):
         container = QFrame()
         layout = QHBoxLayout(container)
         
-        # Ustawienie koloru i ikony
+        # Ustawienie koloru i emotikona
         if notification_type == NotificationTypes.INFO:
             background_color = "#e6f2ff"
             text_color = "#3498db"
-            icon_path = os.path.join(ICONS_DIR, "info.png")
+            icon_text = "ℹ️"  # Emotikon info
         elif notification_type == NotificationTypes.SUCCESS:
             background_color = "#e6ffe6"
             text_color = "#2ecc71"
-            icon_path = os.path.join(ICONS_DIR, "success.png")
+            icon_text = "✅"  # Emotikon sukcesu
         elif notification_type == NotificationTypes.WARNING:
             background_color = "#fff3e0"
             text_color = "#f39c12"
-            icon_path = os.path.join(ICONS_DIR, "warning.png")
+            icon_text = "⚠️"  # Emotikon ostrzeżenia
         elif notification_type == NotificationTypes.ERROR:
             background_color = "#ffebee"
             text_color = "#e74c3c"
-            icon_path = os.path.join(ICONS_DIR, "error.png")
+            icon_text = "❌"  # Emotikon błędu
         else:
             background_color = "#f0f0f0"
             text_color = "#000"
-            icon_path = os.path.join(ICONS_DIR, "info.png")
+            icon_text = "ℹ️"  # Emotikon info
         
         # Styl kontenera
         container.setStyleSheet(f"""
@@ -384,11 +382,10 @@ class NotificationCenterWidget(QWidget):
             }}
         """)
         
-        # Ikona
-        icon_label = QLabel()
-        if os.path.exists(icon_path):
-            pixmap = QPixmap(icon_path).scaled(24, 24, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            icon_label.setPixmap(pixmap)
+        # Ikona z emotikonem
+        icon_label = QLabel(icon_text)
+        icon_label.setFont(QFont("Segoe UI", 16))
+        icon_label.setAlignment(Qt.AlignCenter)
         layout.addWidget(icon_label)
         
         # Treść powiadomienia

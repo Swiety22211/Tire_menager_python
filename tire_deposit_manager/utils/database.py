@@ -53,7 +53,7 @@ def initialize_database(conn):
     try:
         cursor = conn.cursor()
         
-        # Tabela klientów
+        # Tabela klientów z dodanymi polami client_type i created_at
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS clients (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -62,8 +62,43 @@ def initialize_database(conn):
                 email TEXT,
                 additional_info TEXT,
                 discount REAL DEFAULT 0,
-                barcode TEXT
+                barcode TEXT,
+                client_type TEXT DEFAULT 'Indywidualny',
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP
             )
+        ''')
+        
+        # Dodanie indeksu na kolumnie created_at w tabeli clients
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_clients_created_at ON clients(created_at)
+        ''')
+        
+        # Tabela pojazdów klientów
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS vehicles (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                client_id INTEGER NOT NULL,
+                make TEXT NOT NULL,
+                model TEXT NOT NULL,
+                year INTEGER,
+                registration_number TEXT UNIQUE,
+                vin TEXT,
+                tire_size TEXT,
+                vehicle_type TEXT,
+                notes TEXT,
+                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+            )
+        ''')
+        
+        # Dodanie indeksu na kolumnie client_id w tabeli vehicles
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_vehicles_client_id ON vehicles(client_id)
+        ''')
+        
+        # Dodanie indeksu na kolumnie registration_number w tabeli vehicles
+        cursor.execute('''
+            CREATE INDEX IF NOT EXISTS idx_vehicles_registration ON vehicles(registration_number)
         ''')
         
         # Tabela depozytów
@@ -82,7 +117,9 @@ def initialize_database(conn):
                 status TEXT DEFAULT 'Aktywny',
                 season TEXT,
                 price REAL,
-                FOREIGN KEY(client_id) REFERENCES clients(id)
+                vehicle_id INTEGER,
+                FOREIGN KEY(client_id) REFERENCES clients(id),
+                FOREIGN KEY(vehicle_id) REFERENCES vehicles(id)
             )
         ''')
         
@@ -150,7 +187,9 @@ def initialize_database(conn):
                 status TEXT DEFAULT 'Zaplanowana',
                 notes TEXT,
                 duration INTEGER DEFAULT 60,
-                FOREIGN KEY(client_id) REFERENCES clients(id)
+                vehicle_id INTEGER,
+                FOREIGN KEY(client_id) REFERENCES clients(id),
+                FOREIGN KEY(vehicle_id) REFERENCES vehicles(id)
             )
         ''')
         
@@ -163,7 +202,9 @@ def initialize_database(conn):
                 status TEXT DEFAULT 'Nowe',
                 total_amount REAL,
                 notes TEXT,
-                FOREIGN KEY(client_id) REFERENCES clients(id)
+                vehicle_id INTEGER,
+                FOREIGN KEY(client_id) REFERENCES clients(id),
+                FOREIGN KEY(vehicle_id) REFERENCES vehicles(id)
             )
         ''')
         
@@ -226,7 +267,7 @@ def initialize_database(conn):
                 ('company_email', 'kontakt@serwisopony.pl', 'Adres e-mail firmy'),
                 ('company_tax_id', '123-456-78-90', 'NIP firmy'),
                 ('default_vat_rate', '23%', 'Domyślna stawka VAT'),
-                ('app_theme', 'Light', 'Motyw aplikacji (Light/Dark)'),
+                ('app_theme', 'Dark', 'Motyw aplikacji (Light/Dark)'),
                 ('backup_interval', '7', 'Interwał automatycznych kopii zapasowych (dni)'),
             ]
             
@@ -236,6 +277,38 @@ def initialize_database(conn):
             )
             
             conn.commit()
+        
+        # Aktualizacja schematu - sprawdzenie, czy tabela clients ma kolumnę client_type
+        cursor.execute("PRAGMA table_info(clients)")
+        columns = [column[1] for column in cursor.fetchall()]
+        column_updates = []
+        
+        # Dodanie kolumny client_type, jeśli nie istnieje
+        if "client_type" not in columns:
+            cursor.execute("ALTER TABLE clients ADD COLUMN client_type TEXT DEFAULT 'Indywidualny'")
+            column_updates.append("client_type")
+            logger.info("Dodano kolumnę client_type do tabeli clients")
+        
+        # Dodanie kolumny created_at, jeśli nie istnieje
+        if "created_at" not in columns:
+            cursor.execute("ALTER TABLE clients ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP")
+            column_updates.append("created_at")
+            logger.info("Dodano kolumnę created_at do tabeli clients")
+        
+        # Aktualizacja istniejących klientów - ustawienie typu klienta na podstawie nazwy
+        if "client_type" in column_updates:
+            cursor.execute("""
+            UPDATE clients
+            SET client_type = 
+                CASE 
+                    WHEN name LIKE '% Sp. z o.o.%' OR name LIKE '% S.A.%' OR 
+                         name LIKE '% Sp.J.%' OR name LIKE '% Sp.K.%' OR 
+                         name LIKE '% z o.o.%' THEN 'Firma'
+                    ELSE 'Indywidualny'
+                END
+            WHERE client_type IS NULL
+            """)
+            logger.info("Zaktualizowano typy istniejących klientów")
         
         logger.info("Struktura bazy danych została zainicjalizowana")
         
@@ -333,16 +406,36 @@ def initialize_test_data(conn):
         
         # Dodanie przykładowych klientów
         clients_data = [
-            ('Jan Kowalski', '123456789', 'jan.kowalski@example.com', 'Stały klient', 5, 'C-00001'),
-            ('Anna Nowak', '987654321', 'anna.nowak@example.com', 'VIP', 10, 'C-00002'),
-            ('Piotr Wiśniewski', '555666777', 'piotr.wisniewski@example.com', '', 0, 'C-00003'),
-            ('Katarzyna Lewandowska', '111222333', 'katarzyna.lewandowska@example.com', 'Klientka biznesowa', 8, 'C-00004'),
-            ('Marek Wójcik', '444555666', 'marek.wojcik@example.com', '', 0, 'C-00005')
+            ('Jan Kowalski', '123456789', 'jan.kowalski@example.com', 'Stały klient', 5, 'C-00001', 'Indywidualny'),
+            ('Anna Nowak', '987654321', 'anna.nowak@example.com', 'VIP', 10, 'C-00002', 'Indywidualny'),
+            ('Piotr Wiśniewski', '555666777', 'piotr.wisniewski@example.com', '', 0, 'C-00003', 'Indywidualny'),
+            ('Auto Max Sp. z o.o.', '111222333', 'biuro@automax.pl', 'Klient biznesowy', 15, 'C-00004', 'Firma'),
+            ('Marek Wójcik', '444555666', 'marek.wojcik@example.com', '', 0, 'C-00005', 'Indywidualny')
         ]
         
         cursor.executemany(
-            "INSERT INTO clients (name, phone_number, email, additional_info, discount, barcode) VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO clients (name, phone_number, email, additional_info, discount, barcode, client_type) VALUES (?, ?, ?, ?, ?, ?, ?)",
             clients_data
+        )
+        
+        # Dodanie przykładowych pojazdów
+        vehicles_data = [
+            (1, 'Volkswagen', 'Golf', 2018, 'WA12345', 'WVWZZZ1KZCM123456', '205/55 R16', 'Osobowy', 'Silnik 1.6 TDI'),
+            (1, 'Toyota', 'Corolla', 2020, 'WA54321', 'SB1KC09J70E123456', '195/65 R15', 'Osobowy', 'Hybrid 1.8'),
+            (2, 'BMW', 'X5', 2019, 'WB54321', 'WBACV2104L9D23456', '255/50 R19', 'SUV', 'Silnik 3.0d'),
+            (3, 'Fiat', '500', 2021, 'WC98765', 'ZFA3120000J123456', '175/65 R14', 'Osobowy', 'Silnik 1.2'),
+            (4, 'Mercedes', 'Sprinter', 2017, 'WD45678', 'WDB9066351S123456', '235/65 R16C', 'Dostawczy', 'Firmowy'),
+            (5, 'Ford', 'Focus', 2016, 'WE87654', '1FAHP3K27CL123456', '205/60 R16', 'Osobowy', '')
+        ]
+        
+        cursor.executemany(
+            """
+            INSERT INTO vehicles (
+                client_id, make, model, year, registration_number, 
+                vin, tire_size, vehicle_type, notes
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            vehicles_data
         )
         
         # Dodanie przykładowych depozytów
@@ -350,19 +443,19 @@ def initialize_test_data(conn):
         next_season = (datetime.now() + timedelta(days=180)).strftime("%Y-%m-%d")
         
         deposits_data = [
-            (1, 'Volkswagen Golf', 'WA12345', 'Continental', '205/55 R16', 4, 'A-01-02', today, next_season, 'Aktywny', 'Zimowe', 120.00),
-            (2, 'BMW X5', 'WB54321', 'Michelin', '255/50 R19', 4, 'A-02-03', today, next_season, 'Aktywny', 'Letnie', 180.00),
-            (3, 'Toyota Corolla', 'WC98765', 'Bridgestone', '195/65 R15', 4, 'B-01-01', today, next_season, 'Aktywny', 'Zimowe', 100.00),
-            (4, 'Audi A4', 'WD45678', 'Pirelli', '225/45 R17', 4, 'B-02-02', today, next_season, 'Aktywny', 'Letnie', 150.00),
-            (5, 'Ford Focus', 'WE87654', 'Goodyear', '205/60 R16', 4, 'C-01-03', today, next_season, 'Aktywny', 'Zimowe', 110.00)
+            (1, 'Volkswagen Golf', 'WA12345', 'Continental', '205/55 R16', 4, 'A-01-02', today, next_season, 'Aktywny', 'Zimowe', 120.00, 1),
+            (2, 'BMW X5', 'WB54321', 'Michelin', '255/50 R19', 4, 'A-02-03', today, next_season, 'Aktywny', 'Letnie', 180.00, 3),
+            (3, 'Fiat 500', 'WC98765', 'Bridgestone', '175/65 R14', 4, 'B-01-01', today, next_season, 'Aktywny', 'Zimowe', 100.00, 4),
+            (4, 'Mercedes Sprinter', 'WD45678', 'Pirelli', '235/65 R16C', 4, 'B-02-02', today, next_season, 'Aktywny', 'Letnie', 150.00, 5),
+            (5, 'Ford Focus', 'WE87654', 'Goodyear', '205/60 R16', 4, 'C-01-03', today, next_season, 'Aktywny', 'Zimowe', 110.00, 6)
         ]
         
         cursor.executemany(
             """
             INSERT INTO deposits (
                 client_id, car_model, registration_number, tire_brand, tire_size,
-                quantity, location, deposit_date, expected_return_date, status, season, price
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                quantity, location, deposit_date, expected_return_date, status, season, price, vehicle_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             deposits_data
         )
@@ -410,19 +503,19 @@ def initialize_test_data(conn):
         day_after_tomorrow = today + timedelta(days=2)
         
         appointments_data = [
-            (1, today.strftime("%Y-%m-%d"), '09:00', 'Wymiana opon', 'Zaplanowana', 'Wymiana z zimowych na letnie', 60),
-            (2, tomorrow.strftime("%Y-%m-%d"), '10:30', 'Przechowywanie opon', 'Zaplanowana', 'Odbiór opon z depozytu', 30),
-            (3, today.strftime("%Y-%m-%d"), '14:00', 'Naprawa opony', 'Zakończona', 'Naprawa przebitej opony', 45),
-            (4, day_after_tomorrow.strftime("%Y-%m-%d"), '11:15', 'Wyważanie kół', 'Zaplanowana', '', 60),
-            (5, tomorrow.strftime("%Y-%m-%d"), '16:00', 'Wymiana oleju', 'Zaplanowana', 'Wymiana oleju i filtrów', 90)
+            (1, today.strftime("%Y-%m-%d"), '09:00', 'Wymiana opon', 'Zaplanowana', 'Wymiana z zimowych na letnie', 60, 1),
+            (2, tomorrow.strftime("%Y-%m-%d"), '10:30', 'Przechowywanie opon', 'Zaplanowana', 'Odbiór opon z depozytu', 30, 3),
+            (3, today.strftime("%Y-%m-%d"), '14:00', 'Naprawa opony', 'Zakończona', 'Naprawa przebitej opony', 45, 4),
+            (4, day_after_tomorrow.strftime("%Y-%m-%d"), '11:15', 'Wyważanie kół', 'Zaplanowana', '', 60, 5),
+            (5, tomorrow.strftime("%Y-%m-%d"), '16:00', 'Wymiana oleju', 'Zaplanowana', 'Wymiana oleju i filtrów', 90, 6)
         ]
         
         cursor.executemany(
             """
             INSERT INTO appointments (
                 client_id, appointment_date, appointment_time, service_type, 
-                status, notes, duration
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                status, notes, duration, vehicle_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             appointments_data
         )
@@ -451,10 +544,10 @@ def initialize_test_data(conn):
         cursor.execute(
             """
             INSERT INTO orders (
-                client_id, order_date, status, total_amount, notes
-            ) VALUES (?, ?, ?, ?, ?)
+                client_id, order_date, status, total_amount, notes, vehicle_id
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (1, today_str, 'Nowe', 980.00, 'Pilne zamówienie')
+            (1, today_str, 'Nowe', 980.00, 'Pilne zamówienie', 1)
         )
         
         order_id = cursor.lastrowid
@@ -497,3 +590,198 @@ def initialize_test_data(conn):
     except Exception as e:
         conn.rollback()
         logger.error(f"Błąd podczas inicjalizacji przykładowych danych: {e}")
+
+def check_and_upgrade_database(conn):
+    """
+    Sprawdza i aktualizuje strukturę bazy danych do najnowszej wersji.
+    
+    Args:
+        conn: Połączenie z bazą danych SQLite
+        
+    Returns:
+        bool: True jeśli operacja zakończyła się sukcesem, False w przeciwnym razie
+    """
+    try:
+        cursor = conn.cursor()
+        
+        # Sprawdzenie aktualności struktury bazy danych
+        
+        # 1. Sprawdzenie tabeli vehicles
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='vehicles'")
+        if not cursor.fetchone():
+            logger.info("Tabela vehicles nie istnieje - aktualizacja schematu bazy danych")
+            
+            # Utwórz tabelę vehicles
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS vehicles (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    make TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    year INTEGER,
+                    registration_number TEXT UNIQUE,
+                    vin TEXT,
+                    tire_size TEXT,
+                    vehicle_type TEXT,
+                    notes TEXT,
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
+                )
+            ''')
+            
+            # Dodanie indeksów
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_vehicles_client_id ON vehicles(client_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_vehicles_registration ON vehicles(registration_number)")
+            
+            logger.info("Utworzono tabelę vehicles i jej indeksy")
+        
+        # 2. Sprawdzenie dodatkowych kolumn w tabeli clients
+        cursor.execute("PRAGMA table_info(clients)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        # Dodanie kolumny client_type, jeśli nie istnieje
+        if "client_type" not in columns:
+            cursor.execute("ALTER TABLE clients ADD COLUMN client_type TEXT DEFAULT 'Indywidualny'")
+            logger.info("Dodano kolumnę client_type do tabeli clients")
+            
+            # Aktualizacja istniejących klientów - ustawienie typu klienta
+            cursor.execute("""
+            UPDATE clients
+            SET client_type = 
+                CASE 
+                    WHEN name LIKE '% Sp. z o.o.%' OR name LIKE '% S.A.%' OR 
+                         name LIKE '% Sp.J.%' OR name LIKE '% Sp.K.%' OR 
+                         name LIKE '% z o.o.%' THEN 'Firma'
+                    ELSE 'Indywidualny'
+                END
+            WHERE client_type IS NULL
+            """)
+            logger.info("Zaktualizowano typy istniejących klientów")
+        
+        # Dodanie kolumny created_at, jeśli nie istnieje
+        if "created_at" not in columns:
+            cursor.execute("ALTER TABLE clients ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP")
+            logger.info("Dodano kolumnę created_at do tabeli clients")
+            
+            # Dodanie indeksu na created_at
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_created_at ON clients(created_at)")
+        
+        # 3. Sprawdzenie kolumn vehicle_id w powiązanych tabelach
+        
+        # Tabela deposits
+        cursor.execute("PRAGMA table_info(deposits)")
+        deposits_columns = [column[1] for column in cursor.fetchall()]
+        
+        if "vehicle_id" not in deposits_columns:
+            cursor.execute("ALTER TABLE deposits ADD COLUMN vehicle_id INTEGER REFERENCES vehicles(id)")
+            logger.info("Dodano kolumnę vehicle_id do tabeli deposits")
+        
+        # Tabela appointments
+        cursor.execute("PRAGMA table_info(appointments)")
+        appointments_columns = [column[1] for column in cursor.fetchall()]
+        
+        if "vehicle_id" not in appointments_columns:
+            cursor.execute("ALTER TABLE appointments ADD COLUMN vehicle_id INTEGER REFERENCES vehicles(id)")
+            logger.info("Dodano kolumnę vehicle_id do tabeli appointments")
+        
+        # Tabela orders
+        cursor.execute("PRAGMA table_info(orders)")
+        orders_columns = [column[1] for column in cursor.fetchall()]
+        
+        if "vehicle_id" not in orders_columns:
+            cursor.execute("ALTER TABLE orders ADD COLUMN vehicle_id INTEGER REFERENCES vehicles(id)")
+            logger.info("Dodano kolumnę vehicle_id do tabeli orders")
+        
+        # Zatwierdzenie zmian
+        conn.commit()
+        
+        logger.info("Sprawdzenie i aktualizacja struktury bazy danych zakończona sukcesem")
+        return True
+        
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Błąd podczas aktualizacji struktury bazy danych: {e}")
+        return False
+
+# Funkcja pomocnicza do konwersji starych depozytów na nowy format z przypisaniem pojazdów
+def migrate_deposits_to_vehicles(conn):
+    """
+    Migruje dane depozytów do nowej struktury z powiązaniem z pojazdami.
+    Dla każdego depozytu bez przypisanego pojazdu, tworzy nowy pojazd lub przypisuje istniejący.
+    
+    Args:
+        conn: Połączenie z bazą danych SQLite
+        
+    Returns:
+        bool: True jeśli operacja zakończyła się sukcesem, False w przeciwnym razie
+    """
+    try:
+        cursor = conn.cursor()
+        
+        # Pobierz depozyty bez przypisanego pojazdu
+        cursor.execute("""
+            SELECT id, client_id, car_model, registration_number, tire_size
+            FROM deposits
+            WHERE vehicle_id IS NULL
+        """)
+        
+        deposits = cursor.fetchall()
+        
+        if not deposits:
+            logger.info("Brak depozytów do migracji")
+            return True
+        
+        logger.info(f"Znaleziono {len(deposits)} depozytów do migracji")
+        
+        for deposit in deposits:
+            deposit_id, client_id, car_model, reg_number, tire_size = deposit
+            
+            if not reg_number:
+                logger.warning(f"Depozyt ID {deposit_id} nie ma numeru rejestracyjnego - pomijanie")
+                continue
+            
+            # Sprawdź, czy pojazd już istnieje
+            cursor.execute("""
+                SELECT id FROM vehicles
+                WHERE registration_number = ? AND client_id = ?
+            """, (reg_number, client_id))
+            
+            existing_vehicle = cursor.fetchone()
+            
+            if existing_vehicle:
+                # Przypisz istniejący pojazd do depozytu
+                vehicle_id = existing_vehicle[0]
+                logger.info(f"Przypisano istniejący pojazd ID {vehicle_id} do depozytu ID {deposit_id}")
+            else:
+                # Parsuj model samochodu, jeśli jest w formacie "Marka Model"
+                car_parts = car_model.split(' ', 1) if car_model else ['Nieznana', 'Nieznany']
+                make = car_parts[0] if len(car_parts) > 0 else 'Nieznana'
+                model = car_parts[1] if len(car_parts) > 1 else 'Nieznany'
+                
+                # Dodaj nowy pojazd
+                cursor.execute("""
+                    INSERT INTO vehicles
+                    (client_id, make, model, registration_number, tire_size, vehicle_type, notes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, (client_id, make, model, reg_number, tire_size, 'Osobowy', 'Dodano automatycznie z depozytu'))
+                
+                vehicle_id = cursor.lastrowid
+                logger.info(f"Utworzono nowy pojazd ID {vehicle_id} dla depozytu ID {deposit_id}")
+            
+            # Przypisz pojazd do depozytu
+            cursor.execute("""
+                UPDATE deposits
+                SET vehicle_id = ?
+                WHERE id = ?
+            """, (vehicle_id, deposit_id))
+        
+        # Zatwierdzenie zmian
+        conn.commit()
+        
+        logger.info(f"Migracja depozytów zakończona sukcesem - zaktualizowano {len(deposits)} rekordów")
+        return True
+        
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Błąd podczas migracji depozytów: {e}")
+        return False

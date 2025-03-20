@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-Dialog wyświetlający szczegóły klienta.
+Zakładka dialogu szczegółów klienta i zakładkę pojazdów.
 """
 
 import os
@@ -12,12 +12,14 @@ from datetime import datetime
 from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QGridLayout, QLabel, QPushButton, 
     QFrame, QSpacerItem, QSizePolicy, QFormLayout, QMessageBox, QTableWidget,
-    QTableWidgetItem, QHeaderView, QTabWidget
+    QTableWidgetItem, QHeaderView, QTabWidget, QWidget
 )
 from PySide6.QtCore import Qt, QSize
 from PySide6.QtGui import QIcon, QFont, QPixmap, QColor
 
 from ui.notifications import NotificationManager, NotificationTypes
+from ui.dialogs.client_dialog import ClientDialog
+from ui.tabs.vehicles_tab import VehiclesTab
 from utils.paths import ICONS_DIR
 
 # Logger
@@ -26,7 +28,7 @@ logger = logging.getLogger("TireDepositManager")
 class ClientDetailsDialog(QDialog):
     """
     Dialog wyświetlający szczegóły klienta.
-    Umożliwia przeglądanie informacji, historii wizyt, depozytów itp.
+    Umożliwia przeglądanie informacji, historii wizyt, pojazdów, depozytów itp.
     """
     
     def __init__(self, db_connection, client_id, parent=None):
@@ -44,7 +46,7 @@ class ClientDetailsDialog(QDialog):
         self.client_id = client_id
         
         self.setWindowTitle("Szczegóły klienta")
-        self.resize(800, 600)
+        self.resize(900, 700)
         
         # Inicjalizacja UI
         self.init_ui()
@@ -55,20 +57,21 @@ class ClientDetailsDialog(QDialog):
     def init_ui(self):
         """Inicjalizacja interfejsu użytkownika."""
         main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(15, 15, 15, 15)
+        main_layout.setSpacing(15)
         
         # Nagłówek
         header_layout = QHBoxLayout()
         
-        # Ikona klienta
-        icon_label = QLabel()
-        icon_pixmap = QPixmap(os.path.join(ICONS_DIR, "client.png"))
-        icon_label.setPixmap(icon_pixmap.scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        # Ikona klienta - zastąpiona emotikoną
+        icon_label = QLabel("👤")
+        icon_label.setFont(QFont("Segoe UI", 24))
         header_layout.addWidget(icon_label)
         
         # Tytuł klienta
         self.title_label = QLabel("Szczegóły klienta")
         self.title_label.setObjectName("headerLabel")
-        self.title_label.setFont(QFont("Segoe UI", 16, QFont.Bold))
+        self.title_label.setFont(QFont("Segoe UI", 18, QFont.Bold))
         header_layout.addWidget(self.title_label)
         
         header_layout.addStretch(1)
@@ -91,12 +94,22 @@ class ClientDetailsDialog(QDialog):
         
         # Ramka z danymi podstawowymi
         basic_info_frame = QFrame()
+        basic_info_frame.setObjectName("infoFrame")
+        basic_info_frame.setStyleSheet("""
+            QFrame#infoFrame {
+                background-color: #2c3034;
+                border-radius: 8px;
+                padding: 10px;
+            }
+        """)
         basic_info_layout = QHBoxLayout(basic_info_frame)
         
         # Dane kontaktowe
         contact_layout = QFormLayout()
+        contact_layout.setSpacing(10)
         
         self.name_label = QLabel()
+        self.name_label.setFont(QFont("Segoe UI", 12))
         contact_layout.addRow("Nazwa:", self.name_label)
         
         self.phone_label = QLabel()
@@ -109,6 +122,10 @@ class ClientDetailsDialog(QDialog):
         
         # Informacje dodatkowe
         additional_layout = QFormLayout()
+        additional_layout.setSpacing(10)
+        
+        self.type_label = QLabel()
+        additional_layout.addRow("Typ:", self.type_label)
         
         self.discount_label = QLabel()
         additional_layout.addRow("Rabat:", self.discount_label)
@@ -121,8 +138,31 @@ class ClientDetailsDialog(QDialog):
         
         content_layout.addWidget(basic_info_frame)
         
-        # Zakładki z historią
-        tabs = QTabWidget()
+        # Zakładki z różnymi sekcjami
+        self.tabs = QTabWidget()
+        self.tabs.setStyleSheet("""
+            QTabWidget::pane {
+                background-color: #2c3034;
+                border-radius: 8px;
+                border-top-left-radius: 0px;
+            }
+            QTabBar::tab {
+                background-color: #1e272e;
+                color: white;
+                min-width: 120px;
+                padding: 10px 15px;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+            }
+            QTabBar::tab:selected {
+                background-color: #4dabf7;
+                font-weight: bold;
+            }
+        """)
+        
+        # Zakładka pojazdów
+        self.vehicles_tab = VehiclesTab(self.conn, self.client_id)
+        self.tabs.addTab(self.vehicles_tab, "🚗 Pojazdy")
         
         # Zakładka wizyt
         appointments_tab = QWidget()
@@ -136,7 +176,7 @@ class ClientDetailsDialog(QDialog):
         self.appointments_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         
         appointments_layout.addWidget(self.appointments_table)
-        tabs.addTab(appointments_tab, "Wizyty")
+        self.tabs.addTab(appointments_tab, "📅 Wizyty")
         
         # Zakładka depozytów
         deposits_tab = QWidget()
@@ -150,7 +190,7 @@ class ClientDetailsDialog(QDialog):
         self.deposits_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         
         deposits_layout.addWidget(self.deposits_table)
-        tabs.addTab(deposits_tab, "Depozyty")
+        self.tabs.addTab(deposits_tab, "🔄 Depozyty")
         
         # Zakładka zamówień
         orders_tab = QWidget()
@@ -164,17 +204,22 @@ class ClientDetailsDialog(QDialog):
         self.orders_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         
         orders_layout.addWidget(self.orders_table)
-        tabs.addTab(orders_tab, "Zamówienia")
+        self.tabs.addTab(orders_tab, "📋 Zamówienia")
         
-        content_layout.addWidget(tabs)
+        content_layout.addWidget(self.tabs)
         
         main_layout.addLayout(content_layout)
         
         # Przyciski akcji
         action_layout = QHBoxLayout()
         
-        edit_button = QPushButton("Edytuj")
-        edit_button.setIcon(QIcon(os.path.join(ICONS_DIR, "edit.png")))
+        # Przycisk dodania pojazdu
+        add_vehicle_button = QPushButton("🚗 Dodaj pojazd")
+        add_vehicle_button.clicked.connect(self.add_vehicle)
+        action_layout.addWidget(add_vehicle_button)
+        
+        # Przycisk edycji
+        edit_button = QPushButton("✏️ Edytuj klienta")
         edit_button.clicked.connect(self.edit_client)
         action_layout.addWidget(edit_button)
         
@@ -182,8 +227,7 @@ class ClientDetailsDialog(QDialog):
         action_layout.addStretch(1)
         
         # Przycisk zamknięcia
-        close_button = QPushButton("Zamknij")
-        close_button.setIcon(QIcon(os.path.join(ICONS_DIR, "close.png")))
+        close_button = QPushButton("✖️ Zamknij")
         close_button.clicked.connect(self.accept)
         action_layout.addWidget(close_button)
         
@@ -198,7 +242,8 @@ class ClientDetailsDialog(QDialog):
             cursor.execute("""
                 SELECT 
                     name, phone_number, email, 
-                    additional_info, discount, barcode
+                    additional_info, discount, barcode,
+                    client_type
                 FROM clients 
                 WHERE id = ?
             """, (self.client_id,))
@@ -212,7 +257,7 @@ class ClientDetailsDialog(QDialog):
                 return
             
             # Rozpakowanie danych
-            name, phone, email, additional_info, discount, barcode = client_data
+            name, phone, email, additional_info, discount, barcode, client_type = client_data
             
             # Aktualizacja interfejsu
             self.title_label.setText(f"Klient: {name}")
@@ -222,6 +267,9 @@ class ClientDetailsDialog(QDialog):
             self.discount_label.setText(f"{discount}%" if discount else "-")
             self.additional_info_label.setText(additional_info or "-")
             self.barcode_label.setText(f"Kod: {barcode}" if barcode else "-")
+            
+            # Typ klienta
+            self.type_label.setText(client_type or "Indywidualny")
             
             # Ładowanie historii wizyt
             self.load_appointments()
@@ -348,72 +396,101 @@ class ClientDetailsDialog(QDialog):
             logger.error(f"Błąd podczas ładowania depozytów klienta: {e}")
     
     def load_orders(self):
-            """Ładuje historię zamówień klienta."""
-            try:
-                cursor = self.conn.cursor()
-                cursor.execute("""
-                    SELECT 
-                        order_date, total_amount, 
-                        status, notes
-                    FROM orders
-                    WHERE client_id = ?
-                    ORDER BY order_date DESC
-                """, (self.client_id,))
+        """Ładuje historię zamówień klienta."""
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT 
+                    order_date, total_amount, 
+                    status, notes
+                FROM orders
+                WHERE client_id = ?
+                ORDER BY order_date DESC
+            """, (self.client_id,))
+            
+            orders = cursor.fetchall()
+            
+            # Czyszczenie tabeli
+            self.orders_table.setRowCount(0)
+            
+            # Wypełnienie tabeli
+            for row, (date, total, status, notes) in enumerate(orders):
+                self.orders_table.insertRow(row)
                 
-                orders = cursor.fetchall()
+                # Formatowanie daty
+                try:
+                    date_obj = datetime.strptime(date, "%Y-%m-%d")
+                    formatted_date = date_obj.strftime("%d.%m.%Y")
+                except (ValueError, TypeError):
+                    formatted_date = date
                 
-                # Czyszczenie tabeli
-                self.orders_table.setRowCount(0)
+                # Formatowanie kwoty
+                formatted_total = f"{float(total):.2f} PLN" if total is not None else "-"
                 
-                # Wypełnienie tabeli
-                for row, (date, total, status, notes) in enumerate(orders):
-                    self.orders_table.insertRow(row)
-                    
-                    # Formatowanie daty
-                    try:
-                        date_obj = datetime.strptime(date, "%Y-%m-%d")
-                        formatted_date = date_obj.strftime("%d.%m.%Y")
-                    except (ValueError, TypeError):
-                        formatted_date = date
-                    
-                    # Formatowanie kwoty
-                    formatted_total = f"{float(total):.2f} PLN" if total is not None else "-"
-                    
-                    # Dodaj dane do tabeli
-                    data_items = [
-                        formatted_date, 
-                        formatted_total, 
-                        status or "-", 
-                        notes or "-"
-                    ]
-                    
-                    for col, value in enumerate(data_items):
-                        item = QTableWidgetItem(str(value))
-                        
-                        # Kolorowanie statusu
-                        if col == 2:  # Kolumna statusu
-                            if value == "Zrealizowane":
-                                item.setBackground(QColor("#2ecc71"))  # Zielony
-                            elif value == "W trakcie":
-                                item.setBackground(QColor("#f39c12"))  # Pomarańczowy
-                            elif value == "Anulowane":
-                                item.setBackground(QColor("#e74c3c"))  # Czerwony
-                        
-                        self.orders_table.setItem(row, col, item)
+                # Dodaj dane do tabeli
+                data_items = [
+                    formatted_date, 
+                    formatted_total, 
+                    status or "-", 
+                    notes or "-"
+                ]
                 
-            except Exception as e:
-                logger.error(f"Błąd podczas ładowania zamówień klienta: {e}")
-        
+                for col, value in enumerate(data_items):
+                    item = QTableWidgetItem(str(value))
+                    
+                    # Kolorowanie statusu
+                    if col == 2:  # Kolumna statusu
+                        if value == "Zrealizowane":
+                            item.setBackground(QColor("#2ecc71"))  # Zielony
+                        elif value == "W trakcie":
+                            item.setBackground(QColor("#f39c12"))  # Pomarańczowy
+                        elif value == "Anulowane":
+                            item.setBackground(QColor("#e74c3c"))  # Czerwony
+                    
+                    self.orders_table.setItem(row, col, item)
+            
+        except Exception as e:
+            logger.error(f"Błąd podczas ładowania zamówień klienta: {e}")
+    
     def edit_client(self):
         """Otwiera okno edycji klienta."""
-        from ui.dialogs.client_dialog import ClientDialog
         dialog = ClientDialog(self.conn, client_id=self.client_id, parent=self)
-        if dialog.exec() == dialog.Accepted:
+        if dialog.exec() == QDialog.Accepted:
             # Odśwież dane klienta
             self.load_client_data()
             
             # Powiadomienie
             NotificationManager.get_instance().show_notification(
-                f"Zaktualizowano dane klienta: {dialog.client_name}",
+                f"✅ Zaktualizowano dane klienta: {dialog.client_name}",
                 NotificationTypes.SUCCESS
+            )
+    
+    def add_vehicle(self):
+        """Dodaje nowy pojazd do klienta."""
+        try:
+            # Pobierz dane klienta
+            cursor = self.conn.cursor()
+            cursor.execute("SELECT name FROM clients WHERE id = ?", (self.client_id,))
+            client_name = cursor.fetchone()[0]
+            
+            # Otwórz dialog dodawania pojazdu
+            dialog = VehicleDialog(self.conn, client_id=self.client_id, parent=self)
+            if dialog.exec() == QDialog.Accepted:
+                # Przełącz na zakładkę pojazdów
+                self.tabs.setCurrentIndex(0)
+                
+                # Odśwież listę pojazdów
+                self.vehicles_tab.load_vehicles()
+                
+                # Powiadomienie
+                NotificationManager.get_instance().show_notification(
+                    f"🚗 Dodano nowy pojazd dla klienta: {client_name}",
+                    NotificationTypes.SUCCESS
+                )
+        except Exception as e:
+            logger.error(f"Błąd podczas dodawania pojazdu: {e}")
+            QMessageBox.critical(
+                self, 
+                "Błąd", 
+                f"Nie można dodać pojazdu:\n{str(e)}"
             )

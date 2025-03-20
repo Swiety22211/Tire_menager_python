@@ -57,11 +57,6 @@ class MainWindow(QMainWindow):
         font = QFont("Segoe UI", 10)
         self.setFont(font)
         
-        # Inicjalizacja paska statusu - WAŻNE: najpierw utworzyć pasek statusu
-        self.status_bar = QStatusBar()
-        self.setStatusBar(self.status_bar)
-        self.status_bar.showMessage("Aplikacja gotowa")
-        
         # Inicjalizacja interfejsu użytkownika
         self.init_ui()
         
@@ -71,6 +66,10 @@ class MainWindow(QMainWindow):
         
         # Inicjalizacja notyfikacji
         self.init_notification_system()
+
+        # Test powiadomienia - DODAJ TE DWIE LINIE
+        QTimer.singleShot(1000, lambda: NotificationManager.get_instance().show_notification(
+            "Testowe powiadomienie - aplikacja uruchomiona!", NotificationTypes.SUCCESS, 5000))
         
         # Inicjalizacja timera do aktualizacji czasu
         self.timer = QTimer(self)
@@ -101,53 +100,93 @@ class MainWindow(QMainWindow):
         
         # Tworzenie prawego panelu z zawartością
         self.create_content_panel()
-    
+
+    def showStatusMessage(self, message, timeout=0):
+        """
+        Wyświetla komunikat w stopce aplikacji.
+        
+        Args:
+            message (str): Treść komunikatu
+            timeout (int, optional): Czas wyświetlania w milisekundach. 
+                                Domyślnie 0 (stały komunikat)
+        """
+        if hasattr(self, 'status_label'):
+            self.status_label.setText(message)
+            
+            # Opcjonalne wyczyszczenie komunikatu po określonym czasie
+            if timeout > 0:
+                QTimer.singleShot(timeout, lambda: self.status_label.setText("Aplikacja gotowa"))
+
     def create_sidebar(self):
         """Tworzy boczny panel nawigacyjny."""
-        # Ramka bocznego panelu - POSZERZONA
+        # Ramka bocznego panelu
         self.sidebar_frame = QFrame()
         self.sidebar_frame.setObjectName("sidebarFrame")
-        self.sidebar_frame.setFixedWidth(240)  # Zwiększono szerokość z 200px na 240px
+        self.sidebar_frame.setFixedWidth(240)  # Szerokość zgodna ze zrzutem ekranu
+        # Dodajemy jednolite tło dla całego lewego paska
+        self.sidebar_frame.setStyleSheet("background-color: #1a1d21;")
         
         sidebar_layout = QVBoxLayout(self.sidebar_frame)
-        sidebar_layout.setContentsMargins(0, 0, 0, 10)  # Dodano margines na dole
-        sidebar_layout.setSpacing(10)  # Zwiększono odstęp między elementami
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)  # Usuwamy marginesy
+        sidebar_layout.setSpacing(0)  # Usuwamy odstępy między elementami
         
-        # Logo i nazwa aplikacji - USUNIĘTO NIEBIESKIE TŁO
+        # Logo i nazwa aplikacji
         logo_widget = QWidget()
-        logo_layout = QVBoxLayout(logo_widget)
-        logo_layout.setAlignment(Qt.AlignCenter)
-        logo_layout.setContentsMargins(20, 25, 20, 15)  # Większe marginesy
         
-        # Logo - zmiana na logo.png z katalogu images
-        logo_label = QLabel()
-        logo_label.setObjectName("logoLabel")
-        # Zmiana ścieżki do pliku logo
+        # Użyj QHBoxLayout zamiast QVBoxLayout dla lepszego centrowania poziomego
+        logo_layout = QHBoxLayout(logo_widget)
+        logo_layout.setContentsMargins(0, 25, 0, 15)  # Marginesy górny i dolny
+        
+        # Kontener na logo i tekst (układ pionowy)
+        center_widget = QWidget()
+        center_layout = QVBoxLayout(center_widget)
+        center_layout.setAlignment(Qt.AlignCenter)  # Wyrównanie zawartości do środka
+        center_layout.setSpacing(10)  # Odstęp między logo a tekstem
+        
+        # Logo
+        self.logo_label = QLabel()
+        self.logo_label.setObjectName("logoLabel")
+        self.logo_label.setAlignment(Qt.AlignCenter)  # Wyrównanie zawartości etykiety
+        
+        # Ustawienie rozmiaru logo
         logo_pixmap = QPixmap(os.path.join(IMAGES_DIR, "logo.png"))
         if not logo_pixmap.isNull():
-            logo_pixmap = logo_pixmap.scaled(70, 70, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-            logo_label.setPixmap(logo_pixmap)
+            # Zachowaj oryginalne proporcje obrazu
+            logo_pixmap = logo_pixmap.scaled(320, 80, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.logo_label.setPixmap(logo_pixmap)
         
-        # Nazwa aplikacji - WIĘKSZA CZCIONKA
+        # Nazwa aplikacji
         app_title_label = QLabel("MENADŻER\nSERWISU OPON")
         app_title_label.setObjectName("appTitleLabel")
         app_title_label.setAlignment(Qt.AlignCenter)
-        app_title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: white; margin-top: 10px;")
+        app_title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: white;")
         
-        logo_layout.addWidget(logo_label, 0, Qt.AlignCenter)
-        logo_layout.addWidget(app_title_label, 0, Qt.AlignCenter)
+        # Dodaj logo i etykietę do centralnego układu pionowego
+        center_layout.addWidget(self.logo_label)
+        center_layout.addWidget(app_title_label)
         
+        # Dodaj centralny widget do poziomego layoutu, który automatycznie wycentruje zawartość
+        logo_layout.addWidget(center_widget, 1, Qt.AlignCenter)
+        
+        # Dodaj widget logo do głównego layoutu sidebar
         sidebar_layout.addWidget(logo_widget)
         
         # Separator pod logo
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)
         separator.setFrameShadow(QFrame.Sunken)
-        separator.setStyleSheet("background-color: #34495e; max-height: 1px;")
+        separator.setStyleSheet("background-color: #2c3034; max-height: 1px;")
         sidebar_layout.addWidget(separator)
-        sidebar_layout.addSpacing(10)  # Odstęp po separatorze
         
-        # Przyciski menu - WIĘKSZE I LEPIEJ WIDOCZNE
+        # Menu - kontener
+        menu_widget = QWidget()
+        menu_widget.setObjectName("menuContainer")
+        menu_widget.setStyleSheet("background-color: #1a1d21;") # To samo tło
+        menu_layout = QVBoxLayout(menu_widget)
+        menu_layout.setContentsMargins(0, 10, 0, 10)
+        menu_layout.setSpacing(0)
+        
+        # Przyciski menu
         menu_items = [
             {"icon": "🏠", "text": "Pulpit", "module": "dashboard"},
             {"icon": "📋", "text": "Zamówienia", "module": "orders"},
@@ -155,17 +194,18 @@ class MainWindow(QMainWindow):
             {"icon": "🏢", "text": "Depozyty", "module": "deposits"},
             {"icon": "📦", "text": "Magazyn", "module": "inventory"},
             {"icon": "💰", "text": "Finanse", "module": "finances"},
-            {"icon": "📊", "text": "Raporty", "module": "reports"},
+            {"icon": "💲", "text": "Cennik", "module": "pricelist"},
             {"icon": "⚙️", "text": "Ustawienia", "module": "settings"}
         ]
         
         self.menu_buttons = {}
         
         for item in menu_items:
-            btn = QPushButton(f"{item['icon']}  {item['text']}")  # Dodano dodatkową spację po ikonie
+            btn = QPushButton(f"{item['icon']}  {item['text']}")
             btn.setObjectName("menuButton")
             btn.setProperty("module", item["module"])
-            btn.setMinimumHeight(45)  # Zwiększono wysokość z 40 na 45
+            btn.setMinimumHeight(45)
+            btn.setCursor(Qt.PointingHandCursor) # Dodanie kursora wskazującego
             btn.setStyleSheet("""
                 QPushButton {
                     text-align: left;
@@ -176,32 +216,46 @@ class MainWindow(QMainWindow):
                     background-color: transparent;
                 }
                 QPushButton:hover {
-                    background-color: #34495e;
+                    background-color: #2c3034;
                 }
                 QPushButton[active="true"] {
-                    background-color: #3498db;
+                    background-color: #4dabf7;
                     font-weight: bold;
                 }
             """)
             btn.clicked.connect(self.switch_module)
-            sidebar_layout.addWidget(btn)
+            menu_layout.addWidget(btn)
             self.menu_buttons[item["module"]] = btn
         
-        sidebar_layout.addStretch()
+        menu_layout.addStretch()
+        sidebar_layout.addWidget(menu_widget, 1)  # 1 = rozciąganie
         
         # Separator przed informacją o wersji
         separator = QFrame()
         separator.setFrameShape(QFrame.HLine)
         separator.setFrameShadow(QFrame.Sunken)
-        separator.setStyleSheet("background-color: #34495e; max-height: 1px;")
+        separator.setStyleSheet("background-color: #2c3034; max-height: 1px;")
         sidebar_layout.addWidget(separator)
-        sidebar_layout.addSpacing(5)  # Odstęp po separatorze
         
-        # Informacje w stopce - WIĘKSZA CZCIONKA, bez dodatkowego tła
-        version_label = QLabel("Wersja 2.1")
-        version_label.setAlignment(Qt.AlignCenter)
-        version_label.setStyleSheet("color: #95a5a6; margin: 10px 0; font-size: 13px; background-color: transparent;")
-        sidebar_layout.addWidget(version_label)
+        # Stopka w sidebar
+        footer_widget = QWidget()
+        footer_widget.setObjectName("sidebarFooter")
+        footer_widget.setStyleSheet("background-color: #1a1d21;") # To samo tło
+        footer_layout = QVBoxLayout(footer_widget)
+        footer_layout.setContentsMargins(0, 5, 0, 10)
+        
+        # Informacje w stopce
+        info_widget = QWidget()
+        info_layout = QHBoxLayout(info_widget)
+        info_layout.setContentsMargins(15, 0, 15, 0)
+        
+        version_label = QLabel("Serwis Opon MATEO © wersja 2.1")
+        version_label.setAlignment(Qt.AlignRight)
+        version_label.setStyleSheet("color: #95a5a6; font-size: 13px;")
+        info_layout.addWidget(version_label, 1)  # 1 = stretch factor, aby wypełnić całą szerokość
+        
+        footer_layout.addWidget(info_widget)
+        sidebar_layout.addWidget(footer_widget)
         
         # Dodanie panelu bocznego do głównego układu
         self.main_layout.addWidget(self.sidebar_frame)
@@ -238,7 +292,7 @@ class MainWindow(QMainWindow):
         self.content_stack.addWidget(self.clients_tab)
         
         # Pozostałe moduły - placeholdery
-        modules = ["deposits", "inventory", "finances", "reports"]
+        modules = ["deposits", "inventory", "finances", "pricelist"]
         for module in modules:
             placeholder = QWidget()
             layout = QVBoxLayout(placeholder)
@@ -267,87 +321,187 @@ class MainWindow(QMainWindow):
         """Tworzy pasek nagłówkowy aplikacji."""
         header_frame = QFrame()
         header_frame.setObjectName("headerFrame")
-        header_frame.setMinimumHeight(70)  # Zwiększono wysokość z 60 na 70
+        header_frame.setMinimumHeight(70)
         header_frame.setMaximumHeight(70)
-        # Usunięcie tła pod nazwą zakładki
-        header_frame.setStyleSheet("background: transparent;")
+        header_frame.setStyleSheet("background: transparent; border-bottom: 1px solid #2c3034;")
         
         header_layout = QHBoxLayout(header_frame)
         header_layout.setContentsMargins(20, 0, 20, 0)
         
-        # Tytuł - WIĘKSZA CZCIONKA
+        # Tytuł
         self.title_label = QLabel("Pulpit")
         self.title_label.setObjectName("titleLabel")
-        self.title_label.setStyleSheet("font-size: 22px; font-weight: bold; background-color: transparent;")  # Dodany transparent background
+        self.title_label.setStyleSheet("font-size: 22px; font-weight: bold; color: #ecf0f1;")
         
-        # Wyszukiwarka - WIĘKSZA
-        search_layout = QHBoxLayout()
-        search_layout.setSpacing(10)  # Zwiększono odstęp
+        # Wyszukiwarka
+        search_container = QWidget()
+        search_container.setFixedWidth(600)  # Stała szerokość dla lepszego wyrównania
+        search_container.setStyleSheet("background: transparent;")
+        search_layout = QHBoxLayout(search_container)
+        search_layout.setContentsMargins(0, 0, 0, 0)
+        search_layout.setSpacing(10)
+        
+        # Ikona lupy i pole wyszukiwania w jednym komponencie
+        search_box = QFrame()
+        search_box.setObjectName("searchBox")
+        search_box.setFixedHeight(30)  # Zmniejszona wysokość z 35px na 30px
+        search_box.setStyleSheet("""
+            QFrame#searchBox {
+                background-color: #2c3034;
+                border-radius: 5px;
+                min-height: 35px;
+            }
+        """)
+        search_box_layout = QHBoxLayout(search_box)
+        search_box_layout.setContentsMargins(10, 0, 10, 0)
+        search_box_layout.setSpacing(5)
+        
+        search_icon = QLabel("🔍")
+        search_icon.setStyleSheet("color: #bdc3c7; background: transparent;")
         
         self.search_input = QLineEdit()
         self.search_input.setObjectName("searchField")
-        self.search_input.setPlaceholderText("🔍 Szukaj")
-        self.search_input.setMinimumWidth(300)  # Zwiększono szerokość z 250 na 300
-        self.search_input.setMinimumHeight(35)  # Dodano minimalną wysokość
+        self.search_input.setPlaceholderText("Szukaj")
+        self.search_input.returnPressed.connect(self.perform_search)
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                border: none;
+                background: transparent;
+                color: white;
+                font-size: 14px;
+                min-height: 30px;
+            }
+        """)
         
-        # Przycisk szukaj
-        self.search_button = QPushButton("Szukaj")
-        self.search_button.setObjectName("searchButton")
-        self.search_button.setMinimumHeight(35)
-        self.search_button.clicked.connect(self.perform_search)
+        search_box_layout.addWidget(search_icon)
+        search_box_layout.addWidget(self.search_input)
         
+        # Combobox filtrowania
         self.search_type_combo = QComboBox()
         self.search_type_combo.addItems(["Wszystko", "Klienci", "Depozyty", "Opony", "Zamówienia"])
-        self.search_type_combo.setMinimumHeight(35)  # Dodano minimalną wysokość
-        self.search_type_combo.setMinimumWidth(120)  # Dodano minimalną szerokość
+        self.search_type_combo.setMinimumHeight(30)
+        self.search_type_combo.setFixedWidth(120)
+        self.search_type_combo.setStyleSheet("""
+            QComboBox {
+                background-color: #2c3034;
+                color: white;
+                border-radius: 5px;
+                padding: 5px 10px;
+                min-height: 30px;
+                max-height: 30px;
+            }
+            QComboBox::drop-down {
+                border: none;
+                padding-right: 10px;
+            }
+            /* Style dla rozwiniętej listy */
+            QComboBox QAbstractItemView {
+                background-color: #2c3034;
+                color: white;
+                border: 1px solid #0c1419;
+                selection-background-color: #4dabf7;
+                selection-color: white;
+                outline: 0px;  /* Usuwa niebieskie obramowanie po wybraniu */
+            }
+            QComboBox QAbstractItemView::item {
+                padding: 6px 10px;
+                min-height: 24px;
+            }
+            QComboBox QAbstractItemView::item:hover {
+                background-color: #34495e;
+            }
+            QComboBox QAbstractItemView::item:selected {
+                background-color: #4dabf7;
+            }
+        """)
         
-        search_layout.addWidget(self.search_input)
-        search_layout.addWidget(self.search_button)  # Dodanie przycisku "Szukaj"
+        search_layout.addWidget(search_box, 1)  # 1 = rozciąganie
         search_layout.addWidget(self.search_type_combo)
         
-        # Przyciski akcji - WIĘKSZE
+        # Przyciski akcji
+        buttons_container = QWidget()
+        buttons_container.setStyleSheet("background: transparent;")
+        buttons_layout = QHBoxLayout(buttons_container)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(10)
+        
+        # Przycisk dodawania
         self.add_button = QPushButton("+ Nowy")
         self.add_button.setObjectName("addButton")
-        self.add_button.setMinimumHeight(35)  # Dodano minimalną wysokość
-        self.add_button.setMinimumWidth(100)  # Dodano minimalną szerokość
+        self.add_button.setFixedSize(100, 35)
+        self.add_button.setCursor(Qt.PointingHandCursor)
+        self.add_button.setStyleSheet("""
+            QPushButton#addButton {
+                background-color: #51cf66;
+                color: white;
+                font-weight: bold;
+                border-radius: 5px;
+                min-height: 35px;
+            }
+            QPushButton#addButton:hover {
+                background-color: #40c057;
+            }
+        """)
         self.add_button.clicked.connect(self.show_add_menu)
         
+        # Przycisk odświeżania
         self.refresh_button = QPushButton("⟳")
         self.refresh_button.setObjectName("refreshButton")
-        self.refresh_button.setFixedSize(40, 35)  # Ustawiono stały rozmiar
+        self.refresh_button.setFixedSize(40, 35)
+        self.refresh_button.setCursor(Qt.PointingHandCursor)
+        self.refresh_button.setStyleSheet("""
+            QPushButton#refreshButton {
+                background-color: #4dabf7;
+                color: white;
+                border-radius: 5px;
+                font-size: 18px;
+                min-height: 35px;
+            }
+            QPushButton#refreshButton:hover {
+                background-color: #339af0;
+            }
+        """)
         self.refresh_button.clicked.connect(self.refresh_data)
+        
+        buttons_layout.addWidget(self.add_button)
+        buttons_layout.addWidget(self.refresh_button)
         
         header_layout.addWidget(self.title_label)
         header_layout.addStretch(1)
-        header_layout.addLayout(search_layout)
-        header_layout.addSpacing(10)  # Dodano odstęp między wyszukiwarką a przyciskami
-        header_layout.addWidget(self.add_button)
-        header_layout.addSpacing(5)  # Dodano odstęp między przyciskami
-        header_layout.addWidget(self.refresh_button)
+        header_layout.addWidget(search_container)
+        header_layout.addWidget(buttons_container)
         
         parent_layout.addWidget(header_frame)
     
+    # W metodzie create_footer()
     def create_footer(self, parent_layout):
         """Tworzy stopkę aplikacji."""
         footer_frame = QFrame()
         footer_frame.setObjectName("footer")
-        footer_frame.setMinimumHeight(35)  # Zwiększono wysokość z 30 na 35
+        footer_frame.setMinimumHeight(35)
         footer_frame.setMaximumHeight(35)
+        footer_frame.setStyleSheet("background-color: transparent; border-top: 1px solid #2c3034;")
         
         footer_layout = QHBoxLayout(footer_frame)
-        footer_layout.setContentsMargins(15, 0, 15, 0)  # Zwiększono marginesy boczne
+        footer_layout.setContentsMargins(15, 0, 15, 0)
         
-        # Informacje w stopce - WIĘKSZA CZCIONKA
-        self.records_label = QLabel("Depozyty: 0 | Klienci: 0 | Opony: 0")
-        self.records_label.setStyleSheet("font-size: 13px;")  # Bezpośrednie ustawienie stylu
+        # Informacje o rekordach
+        self.records_label = QLabel("Depozyty: 124 | Klienci: 87 | Opony: 256")
+        self.records_label.setStyleSheet("color: #bdc3c7; font-size: 13px;")
         
-        # Elastyczne wypełnienie
+        # Status - przeniesiemy tu komunikaty ze statusbara
+        self.status_label = QLabel("Aplikacja gotowa")
+        self.status_label.setStyleSheet("color: #bdc3c7; font-size: 13px;")
+        
+        # Data i czas
+        self.time_label = QLabel()
+        self.time_label.setStyleSheet("color: #bdc3c7; font-size: 13px;")
+        
+        # Dodanie wszystkich elementów do stopki
         footer_layout.addWidget(self.records_label)
         footer_layout.addStretch(1)
-        
-        # Czas i data - WIĘKSZA CZCIONKA
-        self.time_label = QLabel()
-        self.time_label.setStyleSheet("font-size: 13px;")  # Bezpośrednie ustawienie stylu
+        footer_layout.addWidget(self.status_label)  # Nowy element
+        footer_layout.addStretch(1)
         footer_layout.addWidget(self.time_label)
         
         # Aktualizacja czasu
@@ -436,7 +590,7 @@ class MainWindow(QMainWindow):
             "deposits": 3,
             "inventory": 4,
             "finances": 5,
-            "reports": 6,
+            "pricelist": 6,
             "settings": 7
         }
         
@@ -448,7 +602,7 @@ class MainWindow(QMainWindow):
             "deposits": "Depozyty",
             "inventory": "Magazyn",
             "finances": "Finanse",
-            "reports": "Raporty",
+            "pricelist": "Cennik",
             "settings": "Ustawienia"
         }
         
@@ -459,6 +613,7 @@ class MainWindow(QMainWindow):
             # Aktualizacja tytułu
             self.title_label.setText(module_title.get(module, ""))
             
+            
             # Specjalne obsługa dla modułu ustawień
             if module == "settings":
                 self.show_settings()
@@ -466,21 +621,24 @@ class MainWindow(QMainWindow):
         # Aktualizacja wyglądu przycisków menu
         for m, btn in self.menu_buttons.items():
             btn.setProperty("active", m == module)
-            btn.setStyleSheet("")  # Wymusza odświeżenie stylu
+            btn.style().unpolish(btn)
+            btn.style().polish(btn)
+            btn.update()
         
         # Aktualizacja paska statusu
-        self.status_bar.showMessage(f"Moduł: {module_title.get(module, module.capitalize())}")
+        self.showStatusMessage(f"Moduł: {module_title.get(module, module.capitalize())}")
     
     def perform_search(self):
-        """Obsługuje wyszukiwanie po kliknięciu przycisku Szukaj."""
+        """Obsługuje wyszukiwanie po wpisaniu tekstu."""
         search_text = self.search_input.text()
-        self.global_search(search_text)
+        if len(search_text) >= 3:  # Rozpocznij wyszukiwanie po wpisaniu co najmniej 3 znaków
+            self.global_search(search_text)
     
     def global_search(self, text):
         """Obsługuje globalne wyszukiwanie w aplikacji."""
         if len(text) >= 3:  # Rozpocznij wyszukiwanie po wpisaniu co najmniej 3 znaków
             search_type = self.search_type_combo.currentText()
-            self.status_bar.showMessage(f"Wyszukiwanie '{text}' w zakładce: {search_type}")
+            self.showStatusMessage(f"Wyszukiwanie '{text}' w zakładce: {search_type}")
             
             # Logowanie informacji o wyszukiwaniu
             logger.info(f"Wyszukiwanie: '{text}' w kategorii: {search_type}")
@@ -525,9 +683,9 @@ class MainWindow(QMainWindow):
         menu = QMenu(self)
         menu.setStyleSheet("""
             QMenu {
-                background-color: #2c3e50;
+                background-color: #2c3034;
                 color: white;
-                border: 1px solid #34495e;
+                border: 1px solid #1a1d21;
                 padding: 5px;
             }
             QMenu::item {
@@ -535,7 +693,7 @@ class MainWindow(QMainWindow):
                 font-size: 14px;
             }
             QMenu::item:selected {
-                background-color: #3498db;
+                background-color: #4dabf7;
             }
         """)
         
@@ -558,29 +716,29 @@ class MainWindow(QMainWindow):
         menu.exec(self.add_button.mapToGlobal(self.add_button.rect().bottomLeft()))
     
     def refresh_data(self):
-        """Odświeża dane we wszystkich zakładkach."""
-        self.status_bar.showMessage("Odświeżanie danych...")
-        
-        # Odświeżenie danych w aktywnej zakładce
-        current_widget = self.content_stack.currentWidget()
-        if hasattr(current_widget, 'refresh_data') and callable(current_widget.refresh_data):
-            current_widget.refresh_data()
-        
-        # Aktualizacja liczby rekordów
-        self.update_record_counts()
-        
-        self.status_bar.showMessage("Dane zostały odświeżone", 3000)
-        
-        NotificationManager.get_instance().show_notification(
-            "Dane zostały odświeżone.",
-            NotificationTypes.SUCCESS,
-            duration=3000
-        )
+            """Odświeża dane we wszystkich zakładkach."""
+            self.showStatusMessage("Odświeżanie danych...")
+            
+            # Odświeżenie danych w aktywnej zakładce
+            current_widget = self.content_stack.currentWidget()
+            if hasattr(current_widget, 'refresh_data') and callable(current_widget.refresh_data):
+                current_widget.refresh_data()
+            
+            # Aktualizacja liczby rekordów
+            self.update_record_counts()
+            
+            self.showStatusMessage("Dane zostały odświeżone", 3000)
+            
+            NotificationManager.get_instance().show_notification(
+                "Dane zostały odświeżone.",
+                NotificationTypes.SUCCESS,
+                duration=3000
+            )
     
     # Metody obsługi akcji
     def add_deposit(self):
         """Obsługa dodawania nowego depozytu."""
-        self.status_bar.showMessage("Dodawanie nowego depozytu...", 3000)
+        self.showStatusMessage("Dodawanie nowego depozytu...", 3000)
         NotificationManager.get_instance().show_notification(
             "Funkcja dodawania depozytów nie jest jeszcze zaimplementowana.",
             NotificationTypes.WARNING,
@@ -601,7 +759,7 @@ class MainWindow(QMainWindow):
     
     def add_order(self):
         """Obsługa dodawania nowego zamówienia."""
-        self.status_bar.showMessage("Dodawanie nowego zamówienia...", 3000)
+        self.showStatusMessage("Dodawanie nowego zamówienia...", 3000)
         NotificationManager.get_instance().show_notification(
             "Funkcja dodawania zamówień nie jest jeszcze zaimplementowana.",
             NotificationTypes.WARNING,
@@ -610,7 +768,7 @@ class MainWindow(QMainWindow):
     
     def add_inventory_item(self):
         """Obsługa dodawania nowej opony do magazynu."""
-        self.status_bar.showMessage("Dodawanie nowej opony do magazynu...", 3000)
+        self.showStatusMessage("Dodawanie nowej opony do magazynu...", 3000)
         NotificationManager.get_instance().show_notification(
             "Funkcja dodawania opon do magazynu nie jest jeszcze zaimplementowana.",
             NotificationTypes.WARNING,
@@ -640,53 +798,149 @@ class MainWindow(QMainWindow):
         # Załaduj style z pliku styli
         from utils.styles import get_style_sheet
         
-        # Nadpisujemy niektóre style, aby pozbyć się niebieskiego tła pod logo i dodatkowych teł
-        custom_style = get_style_sheet("Dark") + """
-        QLabel#logoLabel {
-            background-color: transparent;
-            border-radius: 30px;
-            min-width: 70px;
-            max-width: 70px;
-            min-height: 70px;
-            max-height: 70px;
-            margin: 15px auto;
-        }
+        # Aplikujemy globalne style
+        self.setStyleSheet(get_style_sheet("Dark"))
         
-        QFrame#headerFrame {
-            background: transparent;
-            border-bottom: 1px solid #0c1419;
-            min-height: 70px;
-            max-height: 70px;
-        }
-        
-        QLabel#titleLabel {
-            font-size: 22px;
-            font-weight: bold;
-            color: #ecf0f1;
-            background-color: transparent;
-        }
-        
-        QFrame#footer {
-            background-color: transparent;
-            color: #95a5a6;
-            min-height: 35px;
-            max-height: 35px;
-            border-top: 1px solid #0c1419;
-            font-size: 13px;
-        }
-        
-        QStatusBar {
-            background-color: transparent;
-            color: #95a5a6;
-            min-height: 35px;
-            font-size: 13px;
-        }
-        """
-        
-        self.setStyleSheet(custom_style)
+        # Odświeżenie stylów poszczególnych komponentów
+        self.update_component_styles()
         
         # Ustawienia czcionki
         font_family = self.settings.value("font_family", "Segoe UI")
         font_size = int(self.settings.value("font_size", 10))
         font = QFont(font_family, font_size)
         self.setFont(font)
+    
+    def update_component_styles(self):
+        """Aktualizuje style poszczególnych komponentów interfejsu."""
+        # Menu boczne - jednolite ciemne tło
+        self.sidebar_frame.setStyleSheet("background-color: #1a1d21;")
+        
+        # Przyciski menu
+        for module, btn in self.menu_buttons.items():
+            # Odświeżenie stanu aktywności
+            is_active = btn.property("active")
+            btn.setStyleSheet("""
+                QPushButton {
+                    text-align: left;
+                    padding-left: 30px;
+                    font-size: 15px;
+                    border: none;
+                    color: white;
+                    background-color: transparent;
+                }
+                QPushButton:hover {
+                    background-color: #2c3034;
+                }
+                QPushButton[active="true"] {
+                    background-color: #4dabf7;
+                    font-weight: bold;
+                }
+            """)
+        
+        # Pole wyszukiwania i przyciski
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                border: none;
+                background: transparent;
+                color: white;
+                font-size: 14px;
+                min-height: 30px;
+            }
+        """)
+        
+        # Przyciski w górnym pasku
+        self.add_button.setStyleSheet("""
+            QPushButton {
+                background-color: #51cf66;
+                color: white;
+                font-weight: bold;
+                border-radius: 5px;
+                min-height: 35px;
+            }
+            QPushButton:hover {
+                background-color: #40c057;
+            }
+        """)
+        
+        self.refresh_button.setStyleSheet("""
+            QPushButton {
+                background-color: #4dabf7;
+                color: white;
+                border-radius: 5px;
+                font-size: 18px;
+                min-height: 35px;
+            }
+            QPushButton:hover {
+                background-color: #339af0;
+            }
+        """)
+    
+    # Metody do regulacji wielkości i pozycji logo
+    def set_logo_size(self, size):
+        """
+        Pozwala na zmianę rozmiaru logo.
+        
+        Args:
+            width (int): Szerokość logo w pikselach
+            height (int, optional): Wysokość logo w pikselach. Jeśli nie podana, używana jest ta sama wartość co szerokość
+        """
+        if height is None:
+            height = width
+        #Zapamiętanie nowego rozmiaru
+        self.logo_size = size
+
+        # Aktualizacja stylów etykiety logo
+        self.logo_label.setStyleSheet(f"""
+            background-color: transparent;
+            border-radius: 30px;
+            min-width: {size}px;
+            max-width: {size}px;
+            min-height: {size}px;
+            max-height: {size}px;
+            margin: 15px auto;
+        """) 
+
+        #aktualizacja pixmapy
+        logo_pixmap = QPixmap(os.path.join(IMAGES_DIR, "logo.png"))
+        if not logo_pixmap.isNull():
+            logo_pixmap = logo_pixmap.scaled(self.logo_size, self.logo_size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            self.logo_label.setPixmap(logo_pixmap)
+        
+    def set_logo_position(self, alignment):
+        """
+        Pozwala na zmianę pozycji logo.
+        
+        Args:
+            alignment (Qt.AlignmentFlag): Flaga wyrównania Qt, np. Qt.AlignCenter, Qt.AlignLeft
+        """
+        if hasattr(self, 'logo_label'):
+            logo_layout = self.logo_label.parent().layout()
+            logo_layout.removeWidget(self.logo_label)
+            logo_layout.addWidget(self.logo_label, 0, alignment)
+    
+    def closeEvent(self, event):
+        """Obsługuje zdarzenie zamknięcia okna."""
+        # Zapisanie rozmiaru i pozycji okna
+        self.settings.setValue("window/geometry", self.saveGeometry())
+        self.settings.setValue("window/state", self.saveState())
+        
+        # Zapytanie o potwierdzenie zamknięcia aplikacji
+        reply = QMessageBox.question(
+            self, 'Zamykanie aplikacji',
+            "Czy na pewno chcesz zamknąć aplikację?",
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
+        )
+        
+        if reply == QMessageBox.Yes:
+            # Zamknięcie połączenia z bazą danych
+            if self.conn:
+                try:
+                    self.conn.close()
+                    logger.info("Połączenie z bazą danych zostało zamknięte")
+                except Exception as e:
+                    logger.error(f"Błąd podczas zamykania połączenia z bazą danych: {e}")
+            
+            # Zamknięcie aplikacji
+            event.accept()
+        else:
+            event.ignore()
