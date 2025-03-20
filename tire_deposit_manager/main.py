@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 
 """
-Menadżer Depozytów Opon - główny plik uruchomieniowy aplikacji.
+Menadżer Serwisu Opon - główny plik uruchomieniowy aplikacji.
 Obsługuje inicjalizację logowania, połączenie z bazą danych oraz uruchomienie interfejsu użytkownika.
+Zmodernizowana wersja z ciemnym motywem jako domyślnym.
 """
 
 import os
@@ -20,6 +21,7 @@ from PySide6.QtCore import Qt, QTimer
 from ui.main_window import MainWindow
 from utils.database import create_connection, initialize_database
 from utils.paths import APP_DATA_DIR, LOGS_DIR, ICONS_DIR, ensure_directories_exist
+from utils.styles import get_style_sheet  # Nowa funkcja do pobierania stylów
 
 # Konfiguracja logowania
 def setup_logging():
@@ -31,7 +33,7 @@ def setup_logging():
     log_file = os.path.join(LOGS_DIR, f"app_{datetime.now().strftime('%Y%m%d')}.log")
     
     # Konfiguracja loggera
-    logger = logging.getLogger("TireDepositManager")
+    logger = logging.getLogger("TireServiceManager")
     logger.setLevel(logging.DEBUG)
     
     # Obsługa logowania do pliku
@@ -54,7 +56,7 @@ def setup_logging():
 
 def exception_hook(exctype, value, traceback):
     """Przechwytuje nieobsłużone wyjątki i loguje je."""
-    logger = logging.getLogger("TireDepositManager")
+    logger = logging.getLogger("TireServiceManager")
     logger.critical("Nieobsłużony wyjątek:", exc_info=(exctype, value, traceback))
     # Przekazanie wyjątku do oryginalnego handlera
     sys.__excepthook__(exctype, value, traceback)
@@ -66,15 +68,18 @@ def main():
     
     # Konfiguracja logowania
     logger = setup_logging()
-    logger.info("Uruchamianie aplikacji Menadżer Depozytów Opon")
+    logger.info("Uruchamianie aplikacji Menadżer Serwisu Opon")
     
     # Upewnij się, że wszystkie wymagane katalogi istnieją
     ensure_directories_exist()
     
     # Inicjalizacja aplikacji Qt
     app = QApplication(sys.argv)
-    app.setApplicationName("Menadżer Depozytów Opon")
+    app.setApplicationName("Menadżer Serwisu Opon")
     app.setWindowIcon(QIcon(os.path.join(ICONS_DIR, "app-icon.png")))
+    
+    # Ustawienie stylu aplikacji - domyślnie ciemny motyw
+    app.setStyleSheet(get_style_sheet("Dark"))
     
     # Wyświetlenie ekranu powitalnego
     splash_path = os.path.join(ICONS_DIR, "logo.png")
