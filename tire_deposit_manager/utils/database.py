@@ -43,6 +43,7 @@ def create_connection():
         logger.error(f"Błąd podczas łączenia z bazą danych: {e}")
         return None
 
+# Funkcja poprawiona do bezpiecznej inicjalizacji bazy danych
 def initialize_database(conn):
     """
     Inicjalizuje strukturę bazy danych, tworząc tabele jeśli nie istnieją.
@@ -53,7 +54,7 @@ def initialize_database(conn):
     try:
         cursor = conn.cursor()
         
-        # Tabela klientów z dodanymi polami client_type i created_at
+        # Tabela klientów
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS clients (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -64,14 +65,25 @@ def initialize_database(conn):
                 discount REAL DEFAULT 0,
                 barcode TEXT,
                 client_type TEXT DEFAULT 'Indywidualny',
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                created_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
         ''')
         
-        # Dodanie indeksu na kolumnie created_at w tabeli clients
-        cursor.execute('''
-            CREATE INDEX IF NOT EXISTS idx_clients_created_at ON clients(created_at)
-        ''')
+        # Sprawdź, czy kolumna client_type istnieje w tabeli clients
+        cursor.execute("PRAGMA table_info(clients)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        # Dodaj kolumnę client_type, jeśli nie istnieje
+        if "client_type" not in columns:
+            cursor.execute("ALTER TABLE clients ADD COLUMN client_type TEXT DEFAULT 'Indywidualny'")
+            logger.info("Dodano kolumnę client_type do tabeli clients")
+            
+        # Dodaj kolumnę created_at, jeśli nie istnieje
+        if "created_at" not in columns:
+            # Użyj stałej wartości czasu, bo SQLite nie pozwala na dodanie kolumny z funkcją jako domyślną wartość
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute(f"ALTER TABLE clients ADD COLUMN created_at TEXT DEFAULT '{current_time}'")
+            logger.info("Dodano kolumnę created_at do tabeli clients")
         
         # Tabela pojazdów klientów
         cursor.execute('''
@@ -86,7 +98,7 @@ def initialize_database(conn):
                 tire_size TEXT,
                 vehicle_type TEXT,
                 notes TEXT,
-                created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
                 FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
             )
         ''')
@@ -118,6 +130,7 @@ def initialize_database(conn):
                 season TEXT,
                 price REAL,
                 vehicle_id INTEGER,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
                 FOREIGN KEY(client_id) REFERENCES clients(id),
                 FOREIGN KEY(vehicle_id) REFERENCES vehicles(id)
             )
@@ -133,7 +146,8 @@ def initialize_database(conn):
                 price REAL,
                 dot TEXT,
                 season_type TEXT,
-                notes TEXT
+                notes TEXT,
+                created_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
         ''')
         
@@ -154,7 +168,8 @@ def initialize_database(conn):
                 supplier TEXT,
                 vat_rate TEXT DEFAULT '23%',
                 unit TEXT DEFAULT 'szt.',
-                warranty TEXT
+                warranty TEXT,
+                created_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
         ''')
         
@@ -172,6 +187,7 @@ def initialize_database(conn):
                 document TEXT,
                 notes TEXT,
                 user TEXT,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
                 FOREIGN KEY(part_id) REFERENCES parts(id)
             )
         ''')
@@ -188,6 +204,7 @@ def initialize_database(conn):
                 notes TEXT,
                 duration INTEGER DEFAULT 60,
                 vehicle_id INTEGER,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
                 FOREIGN KEY(client_id) REFERENCES clients(id),
                 FOREIGN KEY(vehicle_id) REFERENCES vehicles(id)
             )
@@ -203,6 +220,7 @@ def initialize_database(conn):
                 total_amount REAL,
                 notes TEXT,
                 vehicle_id INTEGER,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
                 FOREIGN KEY(client_id) REFERENCES clients(id),
                 FOREIGN KEY(vehicle_id) REFERENCES vehicles(id)
             )
@@ -218,6 +236,7 @@ def initialize_database(conn):
                 name TEXT,
                 quantity INTEGER,
                 price REAL,
+                created_at TEXT DEFAULT (datetime('now', 'localtime')),
                 FOREIGN KEY(order_id) REFERENCES orders(id)
             )
         ''')
@@ -229,7 +248,8 @@ def initialize_database(conn):
                 name TEXT NOT NULL,
                 description TEXT,
                 capacity INTEGER,
-                used INTEGER DEFAULT 0
+                used INTEGER DEFAULT 0,
+                created_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
         ''')
         
@@ -238,7 +258,8 @@ def initialize_database(conn):
             CREATE TABLE IF NOT EXISTS settings (
                 key TEXT PRIMARY KEY,
                 value TEXT,
-                description TEXT
+                description TEXT,
+                created_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
         ''')
         
@@ -249,7 +270,8 @@ def initialize_database(conn):
                 name TEXT NOT NULL,
                 type TEXT NOT NULL,
                 content TEXT,
-                last_modified TEXT
+                last_modified TEXT,
+                created_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
         ''')
         
@@ -288,12 +310,6 @@ def initialize_database(conn):
             cursor.execute("ALTER TABLE clients ADD COLUMN client_type TEXT DEFAULT 'Indywidualny'")
             column_updates.append("client_type")
             logger.info("Dodano kolumnę client_type do tabeli clients")
-        
-        # Dodanie kolumny created_at, jeśli nie istnieje
-        if "created_at" not in columns:
-            cursor.execute("ALTER TABLE clients ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP")
-            column_updates.append("created_at")
-            logger.info("Dodano kolumnę created_at do tabeli clients")
         
         # Aktualizacja istniejących klientów - ustawienie typu klienta na podstawie nazwy
         if "client_type" in column_updates:
@@ -624,7 +640,7 @@ def check_and_upgrade_database(conn):
                     tire_size TEXT,
                     vehicle_type TEXT,
                     notes TEXT,
-                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    created_at TEXT DEFAULT (datetime('now', 'localtime')),
                     FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE
                 )
             ''')
@@ -660,7 +676,9 @@ def check_and_upgrade_database(conn):
         
         # Dodanie kolumny created_at, jeśli nie istnieje
         if "created_at" not in columns:
-            cursor.execute("ALTER TABLE clients ADD COLUMN created_at TEXT DEFAULT CURRENT_TIMESTAMP")
+            # Użyj stałej wartości czasu, bo SQLite nie pozwala na dodanie kolumny z funkcją jako domyślną wartość
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            cursor.execute(f"ALTER TABLE clients ADD COLUMN created_at TEXT DEFAULT '{current_time}'")
             logger.info("Dodano kolumnę created_at do tabeli clients")
             
             # Dodanie indeksu na created_at

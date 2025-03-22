@@ -7,16 +7,34 @@ Moduł implementujący zakładkę pojazdów w dialogu szczegółów klienta.
 
 import os
 import logging
+import sys
 from datetime import datetime
 
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QTableWidget, QTableWidgetItem,
-    QPushButton, QHeaderView, QMessageBox, QMenu
+    QPushButton, QHeaderView, QMessageBox, QMenu, QDialog
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon, QColor
 
-from ui.dialogs.vehicle_dialog import VehicleDialog
+# Import klasy VehicleDialog z poprawioną ścieżką
+# Czasami potrzebne jest dodanie ścieżki do sys.path, aby moduły były poprawnie znajdowane
+# i można było zaimportować moduł vehicle_dialog
+try:
+    from ui.dialogs.vehicle_dialog import VehicleDialog
+except ImportError:
+    # Jeśli główny import nie zadziała, spróbujmy alternatywnych ścieżek
+    try:
+        import vehicle_dialog
+        VehicleDialog = vehicle_dialog.VehicleDialog
+    except ImportError:
+        logging.error("Nie można zaimportować modułu vehicle_dialog")
+        # Definiujemy pustą klasę tylko po to, by kod się skompilował
+        class VehicleDialog:
+            def __init__(self, *args, **kwargs):
+                logging.error("VehicleDialog nie jest poprawnie zaimportowany!")
+                raise ImportError("Nie można znaleźć modułu vehicle_dialog")
+
 from ui.notifications import NotificationManager, NotificationTypes
 from utils.paths import ICONS_DIR
 
@@ -62,7 +80,10 @@ class VehiclesTab(QWidget):
         # Przycisk dodawania pojazdu
         add_button = QPushButton("🚗 Dodaj pojazd")
         add_button.setObjectName("addButton")
-        add_button.setIcon(QIcon(os.path.join(ICONS_DIR, "add.png")))
+        try:
+            add_button.setIcon(QIcon(os.path.join(ICONS_DIR, "add.png")))
+        except Exception as e:
+            logger.warning(f"Nie można załadować ikony: {e}")
         add_button.clicked.connect(self.add_vehicle)
         button_layout.addWidget(add_button)
         
@@ -159,6 +180,27 @@ class VehiclesTab(QWidget):
     def add_vehicle(self):
         """Otwiera okno dodawania nowego pojazdu."""
         try:
+            # Sprawdź, czy klasa VehicleDialog jest poprawnie zaimportowana
+            if 'VehicleDialog' not in globals():
+                # Próba importu inline
+                try:
+                    from ui.dialogs.vehicle_dialog import VehicleDialog as VehicleDialogClass
+                    global VehicleDialog
+                    VehicleDialog = VehicleDialogClass
+                    logger.info("Zaimportowano VehicleDialog wewnątrz metody add_vehicle")
+                except ImportError as ie:
+                    logger.error(f"Nie można zaimportować VehicleDialog: {ie}")
+                    QMessageBox.critical(
+                        self, 
+                        "Błąd", 
+                        "Brak dostępu do okna dodawania pojazdu. Przepraszamy za niedogodności."
+                    )
+                    return
+            
+            # Sprawdź ścieżkę modułu
+            logger.info(f"Ścieżka do modułu VehicleDialog: {sys.modules.get('ui.dialogs.vehicle_dialog')}")
+            
+            # Tworzymy dialog
             dialog = VehicleDialog(self.conn, client_id=self.client_id, parent=self.parentWidget())
             if dialog.exec() == QDialog.Accepted:
                 # Odśwież listę pojazdów
@@ -185,6 +227,22 @@ class VehiclesTab(QWidget):
             index (QModelIndex, optional): Indeks klikniętego elementu. Domyślnie None.
         """
         try:
+            # Sprawdź, czy klasa VehicleDialog jest poprawnie zaimportowana
+            if 'VehicleDialog' not in globals():
+                # Próba importu inline
+                try:
+                    from ui.dialogs.vehicle_dialog import VehicleDialog as VehicleDialogClass
+                    global VehicleDialog
+                    VehicleDialog = VehicleDialogClass
+                except ImportError as ie:
+                    logger.error(f"Nie można zaimportować VehicleDialog: {ie}")
+                    QMessageBox.critical(
+                        self, 
+                        "Błąd", 
+                        "Brak dostępu do okna edycji pojazdu. Przepraszamy za niedogodności."
+                    )
+                    return
+            
             # Pobierz zaznaczony wiersz
             if index:
                 selected_row = index.row()
@@ -282,48 +340,37 @@ class VehiclesTab(QWidget):
     
     def show_context_menu(self, position):
         """
-        Wyświetla menu kontekstowe dla tabeli klientów.
+        Wyświetla menu kontekstowe dla tabeli pojazdów.
         
         Args:
             position: Pozycja kursora
         """
-        active_tab = self.tabs_widget.currentWidget()
-        table = active_tab.findChild(QTableWidget)
-        
-        if not table:
-            return
-        
         # Sprawdź, czy jakiś wiersz jest zaznaczony
-        selected_items = table.selectedItems()
+        selected_items = self.vehicles_table.selectedItems()
         if not selected_items:
             return
         
-        # Pobierz ID klienta
+        # Pobierz ID pojazdu
         selected_row = selected_items[0].row()
-        client_id = int(table.item(selected_row, 0).text())
-        client_name = table.item(selected_row, 1).text()
+        vehicle_id = int(self.vehicles_table.item(selected_row, 0).text())
+        make = self.vehicles_table.item(selected_row, 1).text()
+        model = self.vehicles_table.item(selected_row, 2).text()
         
         # Utwórz menu
-        menu = QMenu()
+        menu = QMenu(self)
         
-        # Dodaj opcje z emotikonami
-        view_action = menu.addAction("👁️ Szczegóły klienta")
-        edit_action = menu.addAction("✏️ Edytuj klienta")
-        add_vehicle_action = menu.addAction("🚗 Dodaj pojazd")
+        # Dodaj opcje
+        edit_action = menu.addAction("✏️ Edytuj pojazd")
         menu.addSeparator()
-        delete_action = menu.addAction("🗑️ Usuń klienta")
+        delete_action = menu.addAction("🗑️ Usuń pojazd")
         
         # Wykonaj wybraną akcję
-        action = menu.exec(table.viewport().mapToGlobal(position))
+        action = menu.exec(self.vehicles_table.viewport().mapToGlobal(position))
         
         if not action:
             return
         
-        if action == view_action:
-            self.view_client_details(table.model().index(selected_row, 0))
-        elif action == edit_action:
-            self.edit_client()
-        elif action == add_vehicle_action:
-            self.add_vehicle_to_client(client_id, client_name)
+        if action == edit_action:
+            self.edit_vehicle(self.vehicles_table.indexFromItem(selected_items[0]))
         elif action == delete_action:
-            self.delete_client()
+            self.delete_vehicle()

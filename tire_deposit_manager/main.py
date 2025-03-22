@@ -11,6 +11,7 @@ import os
 import sys
 import logging
 import time
+import traceback
 from datetime import datetime
 from pathlib import Path
 
@@ -19,7 +20,7 @@ from PySide6.QtGui import QPixmap, QIcon
 from PySide6.QtCore import Qt, QTimer
 
 from ui.main_window import MainWindow
-from utils.database import create_connection, initialize_database
+from utils.database import create_connection, initialize_database, check_and_upgrade_database
 from utils.paths import APP_DATA_DIR, LOGS_DIR, ICONS_DIR, ensure_directories_exist
 from utils.styles import get_style_sheet  # Nowa funkcja do pobierania stylów
 
@@ -54,74 +55,109 @@ def setup_logging():
     
     return logger
 
-def exception_hook(exctype, value, traceback):
+def exception_hook(exctype, value, traceback_obj):
     """Przechwytuje nieobsłużone wyjątki i loguje je."""
     logger = logging.getLogger("TireServiceManager")
-    logger.critical("Nieobsłużony wyjątek:", exc_info=(exctype, value, traceback))
+    
+    # Formatowanie informacji o wyjątku
+    tb_lines = traceback.format_exception(exctype, value, traceback_obj)
+    tb_text = ''.join(tb_lines)
+    
+    # Logowanie szczegółów wyjątku
+    logger.critical("Nieobsłużony wyjątek:", exc_info=(exctype, value, traceback_obj))
+    
+    # Wyświetlenie okna błędu dla użytkownika
+    error_msg = (
+        f"Wystąpił nieoczekiwany błąd aplikacji:\n\n"
+        f"{value}\n\n"
+        f"Szczegóły błędu zostały zapisane w pliku logów.\n"
+        f"Lokalizacja logów: {LOGS_DIR}"
+    )
+    
+    # Sprawdzenie, czy aplikacja Qt została już zainicjowana
+    if QApplication.instance():
+        QMessageBox.critical(None, "Błąd aplikacji", error_msg)
+    
     # Przekazanie wyjątku do oryginalnego handlera
-    sys.__excepthook__(exctype, value, traceback)
+    sys.__excepthook__(exctype, value, traceback_obj)
 
 def main():
     """Funkcja główna aplikacji."""
-    # Ustawienie obsługi nieobsłużonych wyjątków
-    sys.excepthook = exception_hook
-    
-    # Konfiguracja logowania
-    logger = setup_logging()
-    logger.info("Uruchamianie aplikacji Menadżer Serwisu Opon")
-    
-    # Upewnij się, że wszystkie wymagane katalogi istnieją
-    ensure_directories_exist()
-    
-    # Inicjalizacja aplikacji Qt
-    app = QApplication(sys.argv)
-    app.setApplicationName("Menadżer Serwisu Opon")
-    app.setWindowIcon(QIcon(os.path.join(ICONS_DIR, "app-icon.png")))
-    
-    # Ustawienie stylu aplikacji - domyślnie ciemny motyw
-    app.setStyleSheet(get_style_sheet("Dark"))
-    
-    # Wyświetlenie ekranu powitalnego
-    splash_path = os.path.join(ICONS_DIR, "logo.png")
-    if os.path.exists(splash_path):
-        splash_pixmap = QPixmap(splash_path)
-        splash = QSplashScreen(splash_pixmap)
-        splash.show()
-        app.processEvents()
-    else:
-        splash = None
-    
-    # Wyświetlenie informacji o inicjalizacji na ekranie powitalnym
-    if splash:
-        splash.showMessage("Inicjalizacja bazy danych...", Qt.AlignBottom | Qt.AlignHCenter, Qt.white)
-    
-    # Nawiązanie połączenia z bazą danych
-    conn = create_connection()
-    if not conn:
+    try:
+        # Ustawienie obsługi nieobsłużonych wyjątków
+        sys.excepthook = exception_hook
+        
+        # Konfiguracja logowania
+        logger = setup_logging()
+        logger.info("Uruchamianie aplikacji Menadżer Serwisu Opon")
+        
+        # Upewnij się, że wszystkie wymagane katalogi istnieją
+        ensure_directories_exist()
+        
+        # Inicjalizacja aplikacji Qt
+        app = QApplication(sys.argv)
+        app.setApplicationName("Menadżer Serwisu Opon")
+        app.setWindowIcon(QIcon(os.path.join(ICONS_DIR, "app-icon.png")))
+        
+        # Ustawienie stylu aplikacji - domyślnie ciemny motyw
+        app.setStyleSheet(get_style_sheet("Dark"))
+        
+        # Wyświetlenie ekranu powitalnego
+        splash_path = os.path.join(ICONS_DIR, "logo.png")
+        if os.path.exists(splash_path):
+            splash_pixmap = QPixmap(splash_path)
+            splash = QSplashScreen(splash_pixmap)
+            splash.show()
+            app.processEvents()
+        else:
+            splash = None
+        
+        # Wyświetlenie informacji o inicjalizacji na ekranie powitalnym
         if splash:
-            splash.close()
-        QMessageBox.critical(None, "Błąd", "Nie można połączyć się z bazą danych!")
-        logger.critical("Nie można połączyć się z bazą danych!")
+            splash.showMessage("Inicjalizacja bazy danych...", Qt.AlignBottom | Qt.AlignHCenter, Qt.white)
+        
+        # Nawiązanie połączenia z bazą danych
+        conn = create_connection()
+        if not conn:
+            if splash:
+                splash.close()
+            QMessageBox.critical(None, "Błąd", "Nie można połączyć się z bazą danych!")
+            logger.critical("Nie można połączyć się z bazą danych!")
+            return 1
+        
+        # Inicjalizacja struktury bazy danych
+        initialize_database(conn)
+        
+        # Aktualizacja struktury bazy danych, jeśli potrzebna
+        check_and_upgrade_database(conn)
+        
+        # Aktualizacja ekranu powitalnego
+        if splash:
+            splash.showMessage("Ładowanie interfejsu użytkownika...", Qt.AlignBottom | Qt.AlignHCenter, Qt.white)
+        
+        # Utworzenie głównego okna aplikacji
+        try:
+            mainWindow = MainWindow(conn)
+        except Exception as e:
+            if splash:
+                splash.close()
+            logger.critical("Błąd podczas tworzenia głównego okna: %s", str(e), exc_info=True)
+            QMessageBox.critical(None, "Błąd", f"Błąd podczas uruchamiania aplikacji:\n{str(e)}")
+            return 1
+        
+        # Zamknięcie ekranu powitalnego i wyświetlenie głównego okna
+        if splash:
+            splash.finish(mainWindow)
+        
+        mainWindow.show()
+        
+        # Uruchomienie pętli zdarzeń aplikacji
+        return app.exec()
+    
+    except Exception as e:
+        logger.critical("Krytyczny błąd podczas uruchamiania aplikacji: %s", str(e), exc_info=True)
+        QMessageBox.critical(None, "Błąd krytyczny", f"Nie można uruchomić aplikacji:\n{str(e)}")
         return 1
-    
-    # Inicjalizacja struktury bazy danych
-    initialize_database(conn)
-    
-    # Aktualizacja ekranu powitalnego
-    if splash:
-        splash.showMessage("Ładowanie interfejsu użytkownika...", Qt.AlignBottom | Qt.AlignHCenter, Qt.white)
-    
-    # Utworzenie głównego okna aplikacji
-    mainWindow = MainWindow(conn)
-    
-    # Zamknięcie ekranu powitalnego i wyświetlenie głównego okna
-    if splash:
-        splash.finish(mainWindow)
-    
-    mainWindow.show()
-    
-    # Uruchomienie pętli zdarzeń aplikacji
-    return app.exec()
 
 if __name__ == "__main__":
     sys.exit(main())
