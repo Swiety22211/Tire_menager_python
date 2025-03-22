@@ -94,11 +94,16 @@ class ClientDialog(QDialog):
         self.discount_spin.setSuffix("%")
         form_layout.addRow("Rabat:", self.discount_spin)
         
+        # Typ klienta
+        self.client_type_combo = QComboBox()
+        self.client_type_combo.addItems(["Indywidualny", "Firma"])
+        form_layout.addRow("Typ klienta:", self.client_type_combo)
+
         # Kod kreskowy
         barcode_layout = QHBoxLayout()
         
         self.barcode_input = QLineEdit()
-        self.barcode_input.setReadOnly(True)
+        self.barcode_input.setPlaceholderText("np. C-00001")
         barcode_layout.addWidget(self.barcode_input, 1)
         
         generate_barcode_button = QPushButton("Generuj kod")
@@ -128,7 +133,7 @@ class ClientDialog(QDialog):
             
             # Pobierz dane klienta
             cursor.execute(
-                "SELECT name, phone_number, email, additional_info, discount, barcode FROM clients WHERE id = ?",
+                "SELECT name, phone_number, email, additional_info, discount, barcode, client_type FROM clients WHERE id = ?",
                 (self.client_id,)
             )
             
@@ -144,7 +149,7 @@ class ClientDialog(QDialog):
                 return
             
             # Rozpakowanie danych
-            name, phone_number, email, additional_info, discount, barcode = client
+            name, phone_number, email, additional_info, discount, barcode, client_type = client
             
             # Ustawienie danych w formularzu
             self.name_input.setText(name or "")
@@ -153,6 +158,12 @@ class ClientDialog(QDialog):
             self.info_input.setText(additional_info or "")
             self.discount_spin.setValue(int(discount) if discount is not None else 0)
             self.barcode_input.setText(barcode or "")
+            
+            # Ustawienie typu klienta
+            if client_type == "Firma":
+                self.client_type_combo.setCurrentText("Firma")
+            else:
+                self.client_type_combo.setCurrentText("Indywidualny")
             
             # Zapisanie nazwy klienta
             self.client_name = name
@@ -235,6 +246,47 @@ class ClientDialog(QDialog):
             self.phone_input.setFocus()
             return False
         
+        # Sprawdzenie kodu kreskowego
+        barcode = self.barcode_input.text().strip()
+        if barcode:
+            # Sprawdź unikalność kodu (jeśli inny klient już go ma)
+            cursor = self.conn.cursor()
+            
+            # Sprawdź, czy kod jest już używany przez innego klienta
+            if self.client_id:
+                cursor.execute(
+                    "SELECT id FROM clients WHERE barcode = ? AND id != ?",
+                    (barcode, self.client_id)
+                )
+            else:
+                cursor.execute(
+                    "SELECT id FROM clients WHERE barcode = ?",
+                    (barcode,)
+                )
+            
+            if cursor.fetchone():
+                QMessageBox.warning(
+                    self, 
+                    "Duplikat kodu", 
+                    "Podany kod kreskowy jest już używany przez innego klienta."
+                )
+                self.barcode_input.setFocus()
+                return False
+            
+            # Opcjonalnie: walidacja formatu kodu
+            if not re.match(r'^C-\d{5}$', barcode):
+                reply = QMessageBox.question(
+                    self,
+                    "Niestandardowy format kodu",
+                    "Zalecany format kodu to C-XXXXX (gdzie X to cyfra).\n"
+                    "Czy na pewno chcesz użyć niestandardowego formatu?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                if reply == QMessageBox.No:
+                    self.barcode_input.setFocus()
+                    return False
+        
         return True
     
     def save_client(self):
@@ -252,16 +304,17 @@ class ClientDialog(QDialog):
             additional_info = self.info_input.toPlainText().strip()
             discount = self.discount_spin.value()
             barcode = self.barcode_input.text().strip()
+            client_type = self.client_type_combo.currentText()
             
             # Zapis do bazy danych
             if self.client_id:  # Edycja istniejącego klienta
                 cursor.execute(
                     """
                     UPDATE clients
-                    SET name = ?, phone_number = ?, email = ?, additional_info = ?, discount = ?, barcode = ?
+                    SET name = ?, phone_number = ?, email = ?, additional_info = ?, discount = ?, barcode = ?, client_type = ?
                     WHERE id = ?
                     """,
-                    (name, phone_number, email, additional_info, discount, barcode, self.client_id)
+                    (name, phone_number, email, additional_info, discount, barcode, client_type, self.client_id)
                 )
                 
                 logger.info(f"Zaktualizowano klienta o ID: {self.client_id}")
@@ -270,10 +323,10 @@ class ClientDialog(QDialog):
                 cursor.execute(
                     """
                     INSERT INTO clients
-                    (name, phone_number, email, additional_info, discount, barcode)
-                    VALUES (?, ?, ?, ?, ?, ?)
+                    (name, phone_number, email, additional_info, discount, barcode, client_type)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (name, phone_number, email, additional_info, discount, barcode)
+                    (name, phone_number, email, additional_info, discount, barcode, client_type)
                 )
                 
                 # Pobranie ID nowego klienta

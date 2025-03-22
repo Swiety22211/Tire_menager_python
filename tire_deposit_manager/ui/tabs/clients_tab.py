@@ -19,7 +19,7 @@ from PySide6.QtWidgets import (
     QComboBox, QFrame, QTabWidget, QSplitter, QToolButton, QScrollArea,
     QSpacerItem, QSizePolicy, QStyledItemDelegate, QFileDialog
 )
-from PySide6.QtCore import Qt, QEvent, Signal
+from PySide6.QtCore import Qt, QEvent, Signal, QRect
 from PySide6.QtGui import QIcon, QPixmap, QColor, QFont, QPainter
 
 from ui.dialogs.client_dialog import ClientDialog
@@ -248,29 +248,40 @@ class ActionButtonDelegate(QStyledItemDelegate):
     def paint(self, painter, option, index):
         painter.save()
 
-        # Obliczenie szerokości każdego przycisku
-        button_width = min(option.rect.width() / 3, 30)
+        # Obliczenie szerokości każdego przycisku i odstępów
+        total_width = option.rect.width()
+        button_width = min(total_width / 4, 30)  # Mniejsza szerokość z większymi marginesami
+        spacing = (total_width - (button_width * 3)) / 4  # Równe odstępy
+
+        # Pozycje x dla każdego przycisku
+        x1 = option.rect.left() + spacing
+        x2 = x1 + button_width + spacing
+        x3 = x2 + button_width + spacing
+
+        # Pozycja y (centr pionowy)
+        y_center = option.rect.top() + option.rect.height() / 2
+        button_height = 24
 
         # Obszary dla każdego przycisku
-        view_rect = option.rect.adjusted(
-            option.rect.width() // 2 - button_width * 1.5,
-            option.rect.height() // 2 - 12,
-            option.rect.width() // 2 - button_width * 0.5,
-            option.rect.height() // 2 + 12
+        view_rect = QRect(
+            int(x1), 
+            int(y_center - button_height/2),
+            int(button_width), 
+            int(button_height)
         )
 
-        edit_rect = option.rect.adjusted(
-            option.rect.width() // 2 - button_width * 0.5,
-            option.rect.height() // 2 - 12,
-            option.rect.width() // 2 + button_width * 0.5,
-            option.rect.height() // 2 + 12
+        edit_rect = QRect(
+            int(x2), 
+            int(y_center - button_height/2),
+            int(button_width), 
+            int(button_height)
         )
 
-        delete_rect = option.rect.adjusted(
-            option.rect.width() // 2 + button_width * 0.5,
-            option.rect.height() // 2 - 12,
-            option.rect.width() // 2 + button_width * 1.5,
-            option.rect.height() // 2 + 12
+        delete_rect = QRect(
+            int(x3), 
+            int(y_center - button_height/2),
+            int(button_width), 
+            int(button_height)
         )
 
         # Rysowanie emotikon zamiast ikon
@@ -285,27 +296,40 @@ class ActionButtonDelegate(QStyledItemDelegate):
 
     def editorEvent(self, event, model, option, index):
         if event.type() == QEvent.Type.MouseButtonRelease:
-            button_width = min(option.rect.width() / 3, 30)
+            # Obliczenie szerokości każdego przycisku i odstępów
+            total_width = option.rect.width()
+            button_width = min(total_width / 4, 30)  # Mniejsza szerokość z większymi marginesami
+            spacing = (total_width - (button_width * 3)) / 4  # Równe odstępy
 
-            view_rect = option.rect.adjusted(
-                option.rect.width() // 2 - button_width * 1.5,
-                option.rect.height() // 2 - 12,
-                option.rect.width() // 2 - button_width * 0.5,
-                option.rect.height() // 2 + 12
-            )
-            
-            edit_rect = option.rect.adjusted(
-                option.rect.width() // 2 - button_width * 0.5,
-                option.rect.height() // 2 - 12,
-                option.rect.width() // 2 + button_width * 0.5,
-                option.rect.height() // 2 + 12
+            # Pozycje x dla każdego przycisku
+            x1 = option.rect.left() + spacing
+            x2 = x1 + button_width + spacing
+            x3 = x2 + button_width + spacing
+
+            # Pozycja y (centr pionowy)
+            y_center = option.rect.top() + option.rect.height() / 2
+            button_height = 24
+
+            # Obszary dla każdego przycisku
+            view_rect = QRect(
+                int(x1), 
+                int(y_center - button_height/2),
+                int(button_width), 
+                int(button_height)
             )
 
-            delete_rect = option.rect.adjusted(
-                option.rect.width() // 2 + button_width * 0.5,
-                option.rect.height() // 2 - 12,
-                option.rect.width() // 2 + button_width * 1.5,
-                option.rect.height() // 2 + 12
+            edit_rect = QRect(
+                int(x2), 
+                int(y_center - button_height/2),
+                int(button_width), 
+                int(button_height)
+            )
+
+            delete_rect = QRect(
+                int(x3), 
+                int(y_center - button_height/2),
+                int(button_width), 
+                int(button_height)
             )
 
             if view_rect.contains(event.pos()):
@@ -360,7 +384,7 @@ class ClientsTable(QTableWidget):
         self.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)  # Pojazdy
         self.horizontalHeader().setSectionResizeMode(6, QHeaderView.ResizeToContents)  # Typ
         self.horizontalHeader().setSectionResizeMode(7, QHeaderView.Fixed)  # Akcje
-        self.setColumnWidth(7, 120)  # Stała szerokość kolumny akcji
+        self.setColumnWidth(7, 190)  # Stała szerokość kolumny akcji
         
         # Delegaty
         self.setItemDelegateForColumn(6, StatusDelegate(self))  # Kolumna "Typ"
@@ -453,6 +477,10 @@ class ClientsTab(QWidget):
         search_box_layout.setSpacing(5)
         
         search_icon = QLabel("🔍")
+        search_icon.setStyleSheet("""
+            background-color: transparent; 
+            color: #adb5bd;
+        """)
         search_icon.setFixedWidth(20)
         search_box_layout.addWidget(search_icon)
         
