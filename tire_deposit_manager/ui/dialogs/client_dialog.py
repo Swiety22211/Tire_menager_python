@@ -56,6 +56,45 @@ class ClientDialog(QDialog):
         """Inicjalizacja interfejsu użytkownika dialogu."""
         main_layout = QVBoxLayout(self)
         
+        # Ustawienie stylów - dodane style podobne do tych z order_dialog.py
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #2a2a2a;
+                color: #ffffff;
+            }
+            QLabel {
+                background-color: transparent;  /* Przezroczyste tło etykiet */
+                color: #ffffff;
+                font-size: 13px;
+            }
+            QLineEdit, QTextEdit, QComboBox, QSpinBox {
+                background-color: #3a3a3a;
+                color: #ffffff;
+                border: 1px solid #505050;
+                border-radius: 4px;
+                padding: 5px;
+                min-height: 25px;
+            }
+            QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus {
+                border: 1px solid #4dabf7;
+            }
+            QPushButton {
+                background-color: #4dabf7;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 15px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #339af0;
+            }
+            QDialogButtonBox QPushButton {
+                min-height: 30px;
+                min-width: 80px;
+            }
+        """)
+
         # Formularz danych klienta
         form_layout = QFormLayout()
         form_layout.setSpacing(10)

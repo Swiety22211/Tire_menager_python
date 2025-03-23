@@ -10,6 +10,7 @@ Dodatkowo umożliwia przypisywanie pojazdów do klientom.
 import os
 import logging
 import csv
+import smtplib
 from datetime import datetime
 from typing import Optional, List, Dict, Any, Tuple
 
@@ -20,8 +21,12 @@ from PySide6.QtWidgets import (
     QSpacerItem, QSizePolicy, QStyledItemDelegate, QFileDialog
 )
 from PySide6.QtCore import Qt, QEvent, Signal, QRect
-from PySide6.QtGui import QIcon, QPixmap, QColor, QFont, QPainter
+from PySide6.QtGui import QIcon, QPixmap, QColor, QFont, QPainter, QPen, QBrush
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+from email.mime.application import MIMEApplication
 
+from utils.settings import Settings
 from ui.dialogs.client_dialog import ClientDialog
 from ui.dialogs.client_details_dialog import ClientDetailsDialog
 from ui.dialogs.vehicle_dialog import VehicleDialog
@@ -195,6 +200,66 @@ STYLES = {
             height: 1px;
             background-color: #1a1d21;
             margin: 5px 0px 5px 0px;
+        }
+    """,
+    "STAT_CARD": """
+        QFrame#statCard {
+            background-color: #343a40;
+            border-radius: 10px;
+            padding: 10px;
+        }
+    """,
+    "STAT_CARD_BLUE": """
+        QFrame#statCard {
+            background-color: #1c7ed6;
+            border-radius: 10px;
+            padding: 10px;
+        }
+    """,
+    "STAT_CARD_GREEN": """
+        QFrame#statCard {
+            background-color: #40c057;
+            border-radius: 10px;
+            padding: 10px;
+        }
+    """,
+    "STAT_CARD_ORANGE": """
+        QFrame#statCard {
+            background-color: #fd7e14;
+            border-radius: 10px;
+            padding: 10px;
+        }
+    """,
+    "STAT_CARD_LIGHT_BLUE": """
+        QFrame#statCard {
+            background-color: #4dabf7;
+            border-radius: 10px;
+            padding: 10px;
+        }
+    """,
+    "STAT_LABEL": """
+        QLabel {
+            color: white;
+            font-weight: bold;
+            font-size: 28px;
+        }
+    """,
+    "STAT_TITLE": """
+        QLabel {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 14px;
+        }
+    """,
+    "EMAIL_BUTTON": """
+        QPushButton#emailButton {
+            background-color: #4dabf7;
+            color: white;
+            font-weight: bold;
+            border-radius: 5px;
+            padding: 5px 15px;
+        }
+        QPushButton#emailButton:hover {
+            background-color: #339af0;
         }
     """
 }
@@ -438,7 +503,7 @@ class ClientsTab(QWidget):
         main_layout.setContentsMargins(15, 15, 15, 15)
         main_layout.setSpacing(15)
         
-        # Nagłówek (bez przycisku dodawania, który będzie na dole)
+        # Nagłówek z tytułem i przyciskiem dodawania
         header_layout = QHBoxLayout()
         header_layout.setSpacing(10)
         
@@ -453,6 +518,15 @@ class ClientsTab(QWidget):
         
         # Elastyczny odstęp
         header_layout.addStretch(1)
+
+        # Przycisk wysyłania emaili
+        self.email_button = QPushButton("📧 " + _("Wyślij Email"))
+        self.email_button.setObjectName("emailButton")
+        self.email_button.setFixedHeight(40)
+        self.email_button.setMinimumWidth(130)
+        self.email_button.setStyleSheet(STYLES["EMAIL_BUTTON"])
+        self.email_button.clicked.connect(self.send_email_to_clients)
+        header_layout.addWidget(self.email_button)
         
         main_layout.addLayout(header_layout)
         
@@ -492,25 +566,6 @@ class ClientsTab(QWidget):
         search_box_layout.addWidget(self.search_input)
         
         search_layout.addWidget(search_box, 1)  # Rozciągnij pole wyszukiwania
-        
-        # Combobox filtrów typu klienta
-        type_layout = QHBoxLayout()
-        type_layout.setSpacing(5)
-        
-        type_label = QLabel(_("Typ:"))
-        type_label.setMinimumWidth(40)
-        type_layout.addWidget(type_label)
-        
-        self.type_combo = QComboBox()
-        self.type_combo.setObjectName("filterCombo")
-        self.type_combo.setFixedHeight(40)
-        self.type_combo.setMinimumWidth(150)
-        self.type_combo.addItems([_("Wszyscy"), _("Indywidualni"), _("Firmowi"), _("Stali"), _("Nowi")])
-        self.type_combo.setStyleSheet(STYLES["COMBO_BOX"])
-        self.type_combo.currentTextChanged.connect(self.change_client_type_filter)
-        type_layout.addWidget(self.type_combo)
-        
-        search_layout.addLayout(type_layout)
         
         # Combobox sortowania
         sort_layout = QHBoxLayout()
@@ -641,7 +696,606 @@ class ClientsTab(QWidget):
         pagination_layout.addWidget(self.export_button)
         
         main_layout.addLayout(pagination_layout)
+
+    def create_stat_card(self, icon, title, value, style):
+        """
+        Tworzy kartę statystyczną z wybraną ikoną, tytułem i wartością.
+        
+        Args:
+            icon (str): Emotikona/ikona
+            title (str): Tytuł karty
+            value (str): Wartość statystyki
+            style (str): Style CSS dla karty
+            
+        Returns:
+            QFrame: Karta statystyczna
+        """
+        card = QFrame()
+        card.setObjectName("statCard")
+        card.setMinimumHeight(100)
+        card.setStyleSheet(style)
+        
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(15, 10, 15, 10)
+        layout.setSpacing(5)
+        
+        # Pobierz kolor tła z CSS style
+        # Klucz koloru tła znajduje się po "background-color: " i przed ";"
+        background_color = ""
+        for line in style.split("\n"):
+            if "background-color:" in line:
+                background_color = line.split("background-color:")[1].split(";")[0].strip()
+                break
+        
+        # Tytuł z ikoną - teraz z tym samym kolorem tła
+        title_layout = QHBoxLayout()
+        title_layout.setSpacing(5)
+        
+        icon_label = QLabel(icon)
+        if background_color:
+            icon_label.setStyleSheet(f"font-size: 16px; background-color: {background_color};")
+        else:
+            icon_label.setStyleSheet("font-size: 16px;")
+        title_layout.addWidget(icon_label)
+        
+        title_label = QLabel(title)
+        if background_color:
+            title_label.setStyleSheet(f"{STYLES['STAT_TITLE']} background-color: {background_color};")
+        else:
+            title_label.setStyleSheet(STYLES["STAT_TITLE"])
+        title_layout.addWidget(title_label)
+        
+        title_layout.addStretch(1)
+        
+        layout.addLayout(title_layout)
+        
+        # Wartość - również z tym samym kolorem tła
+        value_label = QLabel(value)
+        if background_color:
+            value_label.setStyleSheet(f"{STYLES['STAT_LABEL']} background-color: {background_color};")
+        else:
+            value_label.setStyleSheet(STYLES["STAT_LABEL"])
+        layout.addWidget(value_label)
+        
+        # Zapisanie referencji do etykiety wartości
+        card.value_label = value_label
+        
+        return card
+
+    def update_statistics(self):
+        """
+        Aktualizuje statystyki klientów na podstawie danych z bazy.
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            # Optymalizacja: pobierz wszystkie statystyki jednym zapytaniem
+            cursor.execute("""
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN client_type = 'Indywidualny' THEN 1 ELSE 0 END) as individual,
+                    SUM(CASE WHEN client_type = 'Firma' THEN 1 ELSE 0 END) as company
+                FROM clients
+            """)
+            
+            result = cursor.fetchone()
+            if result:
+                self.statistics['total'] = result[0] or 0
+                self.statistics['individual'] = result[1] or 0
+                self.statistics['company'] = result[2] or 0
+                
+                # Aktualizacja wartości na widżetach
+                self.all_clients_card.value_label.setText(str(self.statistics['total']))
+                self.individual_clients_card.value_label.setText(str(self.statistics['individual']))
+                self.company_clients_card.value_label.setText(str(self.statistics['company']))
+            
+            # Pobierz liczbę aktywnych depozytów (zakładam, że masz tabelę 'deposits' z polem 'active')
+            # Jeśli struktura bazy jest inna, dostosuj to zapytanie
+            try:
+                cursor.execute("""
+                    SELECT COUNT(*) FROM deposits WHERE active = 1
+                """)
+                active_deposits = cursor.fetchone()[0] or 0
+                self.statistics['active_deposits'] = active_deposits
+                self.active_deposits_card.value_label.setText(str(active_deposits))
+            except Exception as e:
+                # Jeśli tabela depozytów nie istnieje lub ma inną strukturę
+                logger.warning(f"Nie można pobrać statystyk depozytów: {e}")
+                self.statistics['active_deposits'] = 0
+                self.active_deposits_card.value_label.setText("0")
+            
+        except Exception as e:
+            logger.error(f"Błąd podczas aktualizacji statystyk: {e}")
     
+    def send_email_to_clients(self):
+        """
+        Otwiera dialog do wysyłania emaili do wybranych klientów.
+        """
+        # Sprawdź, czy są zaznaczeni klienci
+        current_tab = self.tabs_widget.currentWidget()
+        table = current_tab.clients_table
+        selected_items = table.selectedItems()
+        selected_rows = set()
+        
+        for item in selected_items:
+            selected_rows.add(item.row())
+        
+        # Przygotuj listę klientów
+        selected_clients = []
+        for row in selected_rows:
+            client_id = int(table.item(row, 0).text())
+            client_name = table.item(row, 1).text()
+            client_email = table.item(row, 3).text()
+            
+            # Sprawdź, czy email jest dostępny
+            if client_email and "@" in client_email:
+                selected_clients.append({
+                    'id': client_id,
+                    'name': client_name,
+                    'email': client_email
+                })
+        
+        if not selected_clients:
+            # Jeśli nie ma zaznaczonych klientów lub nie mają emaili, pokaż opcję wyboru wszystkich
+            reply = QMessageBox.question(
+                self,
+                _("Brak zaznaczonych klientów"),
+                _("Nie zaznaczono klientów z adresami email. Czy chcesz wysłać email do wszystkich klientów, którzy posiadają adresy email?"),
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                # Pobierz wszystkich klientów z emailami
+                try:
+                    cursor = self.conn.cursor()
+                    cursor.execute("""
+                        SELECT id, name, email FROM clients 
+                        WHERE email IS NOT NULL AND email <> '' 
+                        ORDER BY name
+                    """)
+                    
+                    clients = cursor.fetchall()
+                    for client in clients:
+                        client_id, client_name, client_email = client
+                        if "@" in client_email:
+                            selected_clients.append({
+                                'id': client_id,
+                                'name': client_name,
+                                'email': client_email
+                            })
+                except Exception as e:
+                    logger.error(f"Błąd podczas pobierania listy klientów: {e}")
+                    QMessageBox.critical(
+                        self,
+                        _("Błąd"),
+                        f"{_('Wystąpił błąd podczas pobierania listy klientów')}:\n{str(e)}"
+                    )
+                    return
+            else:
+                return
+        
+        if not selected_clients:
+            QMessageBox.warning(
+                self,
+                _("Brak adresów email"),
+                _("Nie znaleziono klientów z poprawnymi adresami email.")
+            )
+            return
+        
+        # Wyświetl dialog do wysyłania emaili
+        self.show_email_dialog(selected_clients)
+    
+    def show_email_dialog(self, clients):
+        """
+        Wyświetla dialog do wysyłania emaili.
+        
+        Args:
+            clients (list): Lista słowników z danymi klientów (id, name, email)
+        """
+        dialog = QDialog(self)
+        dialog.setWindowTitle(_("Wyślij Email do Klientów"))
+        dialog.setMinimumWidth(600)
+        dialog.setMinimumHeight(500)
+        
+        # Układ główny
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
+        
+        # Etykieta z informacją o liczbie odbiorców
+        recipients_label = QLabel(_("Wybrani odbiorcy: {}").format(len(clients)))
+        recipients_label.setStyleSheet("font-weight: bold;")
+        layout.addWidget(recipients_label)
+        
+        # Lista odbiorców (rozwijana)
+        recipients_frame = QFrame()
+        recipients_frame.setFrameShape(QFrame.StyledPanel)
+        recipients_frame.setMaximumHeight(150)
+        recipients_scroll = QScrollArea()
+        recipients_scroll.setWidget(recipients_frame)
+        recipients_scroll.setWidgetResizable(True)
+        
+        recipients_layout = QVBoxLayout(recipients_frame)
+        for client in clients:
+            client_label = QLabel(f"{client['name']} <{client['email']}>")
+            recipients_layout.addWidget(client_label)
+        
+        layout.addWidget(recipients_scroll)
+        
+        # Pole tematu
+        subject_layout = QHBoxLayout()
+        subject_label = QLabel(_("Temat:"))
+        subject_label.setFixedWidth(80)
+        subject_layout.addWidget(subject_label)
+        
+        subject_input = QLineEdit()
+        subject_layout.addWidget(subject_input)
+        layout.addLayout(subject_layout)
+        
+        # Pole treści
+        content_label = QLabel(_("Treść wiadomości:"))
+        layout.addWidget(content_label)
+        
+        email_content = QTextEdit()
+        email_content.setMinimumHeight(200)
+        layout.addWidget(email_content)
+        
+        # Przyciski
+        buttons_layout = QHBoxLayout()
+        buttons_layout.addStretch(1)
+        
+        cancel_button = QPushButton(_("Anuluj"))
+        cancel_button.clicked.connect(dialog.reject)
+        buttons_layout.addWidget(cancel_button)
+        
+        send_button = QPushButton(_("Wyślij"))
+        send_button.setStyleSheet("""
+            background-color: #40c057;
+            color: white;
+            font-weight: bold;
+            border-radius: 5px;
+            padding: 5px 20px;
+        """)
+        send_button.clicked.connect(lambda: self.send_emails(
+            clients,
+            subject_input.text(),
+            email_content.toPlainText(),
+            dialog
+        ))
+        buttons_layout.addWidget(send_button)
+        
+        layout.addLayout(buttons_layout)
+        
+        # Wyświetl dialog
+        dialog.exec()
+    
+    def send_emails(self, clients, subject, content, dialog):
+        """
+        Wysyła emaile do wybranych klientów.
+        
+        Args:
+            clients (list): Lista słowników z danymi klientów
+            subject (str): Temat wiadomości
+            content (str): Treść wiadomości
+            dialog (QDialog): Dialog, który należy zamknąć po wysłaniu
+        """
+        # Walidacja pól
+        if not subject.strip():
+            QMessageBox.warning(
+                dialog,
+                _("Brak tematu"),
+                _("Proszę podać temat wiadomości.")
+            )
+            return
+        
+        if not content.strip():
+            QMessageBox.warning(
+                dialog,
+                _("Brak treści"),
+                _("Proszę podać treść wiadomości.")
+            )
+            return
+        
+        # Pobranie ustawień SMTP
+        try:
+            settings = Settings.get_instance()
+            smtp_server = settings.get_setting("smtp_server", "")
+            smtp_port = int(settings.get_setting("smtp_port", "587"))
+            smtp_user = settings.get_setting("smtp_user", "")
+            smtp_password = settings.get_setting("smtp_password", "")
+            sender_email = settings.get_setting("sender_email", "")
+            
+            if not all([smtp_server, smtp_port, smtp_user, smtp_password, sender_email]):
+                QMessageBox.warning(
+                    dialog,
+                    _("Brak konfiguracji SMTP"),
+                    _("Proszę skonfigurować ustawienia SMTP w opcjach aplikacji.")
+                )
+                return
+        except Exception as e:
+            logger.error(f"Błąd podczas pobierania ustawień SMTP: {e}")
+            QMessageBox.critical(
+                dialog,
+                _("Błąd"),
+                f"{_('Wystąpił błąd podczas pobierania ustawień SMTP')}:\n{str(e)}"
+            )
+            return
+        
+        # Przygotowanie do wysyłania
+        progress_dialog = QProgressDialog(_("Wysyłanie emaili..."), _("Anuluj"), 0, len(clients), dialog)
+        progress_dialog.setWindowTitle(_("Postęp wysyłania"))
+        progress_dialog.setWindowModality(Qt.WindowModal)
+        progress_dialog.setMinimumDuration(0)
+        progress_dialog.setValue(0)
+        
+        success_count = 0
+        error_count = 0
+        error_messages = []
+        
+        try:
+            # Nawiązanie połączenia z serwerem SMTP
+            server = smtplib.SMTP(smtp_server, smtp_port)
+            server.starttls()
+            server.login(smtp_user, smtp_password)
+            
+            # Wysyłanie emaili
+            for i, client in enumerate(clients):
+                if progress_dialog.wasCanceled():
+                    break
+                
+                try:
+                    # Przygotowanie wiadomości
+                    msg = MIMEMultipart()
+                    msg['From'] = sender_email
+                    msg['To'] = client['email']
+                    msg['Subject'] = subject
+                    
+                    # Dodanie treści wiadomości
+                    msg.attach(MIMEText(content, 'plain'))
+                    
+                    # Wysłanie wiadomości
+                    server.sendmail(sender_email, client['email'], msg.as_string())
+                    success_count += 1
+                    
+                except Exception as e:
+                    error_count += 1
+                    error_msg = f"{client['name']} ({client['email']}): {str(e)}"
+                    error_messages.append(error_msg)
+                    logger.error(f"Błąd wysyłania emaila do {client['email']}: {e}")
+                
+                # Aktualizacja paska postępu
+                progress_dialog.setValue(i + 1)
+            
+            # Zamknięcie połączenia SMTP
+            server.quit()
+            
+        except Exception as e:
+            logger.error(f"Błąd połączenia z serwerem SMTP: {e}")
+            QMessageBox.critical(
+                dialog,
+                _("Błąd SMTP"),
+                f"{_('Wystąpił błąd podczas łączenia z serwerem SMTP')}:\n{str(e)}"
+            )
+            progress_dialog.cancel()
+            return
+        
+        # Zamknięcie okna postępu
+        progress_dialog.setValue(len(clients))
+        
+        # Zamknięcie dialogu wysyłania
+        dialog.accept()
+        
+        # Podsumowanie wysyłania
+        if error_count > 0:
+            # Pokaż informację o błędach
+            error_dialog = QDialog(self)
+            error_dialog.setWindowTitle(_("Raport wysyłania"))
+            error_dialog.setMinimumWidth(500)
+            error_dialog.setMinimumHeight(300)
+            
+            error_layout = QVBoxLayout(error_dialog)
+            
+            summary_label = QLabel(
+                _("Wysłano {} wiadomości. Wystąpiło {} błędów.").format(
+                    success_count, error_count
+                )
+            )
+            summary_label.setStyleSheet("font-weight: bold; margin-bottom: 10px;")
+            error_layout.addWidget(summary_label)
+            
+            errors_label = QLabel(_("Szczegóły błędów:"))
+            error_layout.addWidget(errors_label)
+            
+            errors_text = QTextEdit()
+            errors_text.setReadOnly(True)
+            errors_text.setPlainText("\n".join(error_messages))
+            error_layout.addWidget(errors_text)
+            
+            close_button = QPushButton(_("Zamknij"))
+            close_button.clicked.connect(error_dialog.accept)
+            error_layout.addWidget(close_button, 0, Qt.AlignRight)
+            
+            error_dialog.exec()
+        else:
+            # Powiadomienie o sukcesie
+            NotificationManager.get_instance().show_notification(
+                f"📧 {_('Pomyślnie wysłano')} {success_count} {_('wiadomości email')}",
+                NotificationTypes.SUCCESS
+            )
+        
+    def load_clients(self):
+        """
+        Ładuje listę klientów z bazy danych i wyświetla w odpowiednich zakładkach.
+        """
+        try:
+            cursor = self.conn.cursor()
+            
+            # Przygotowanie parametrów zapytania
+            params = []
+            
+            # Bazowe zapytanie zoptymalizowane - używa jednego JOIN i podzapytań
+            base_query = """
+            SELECT 
+                c.id, 
+                c.name, 
+                c.phone_number, 
+                c.email, 
+                c.client_type, 
+                c.discount,
+                v.registration_number as reg_number,
+                (SELECT COUNT(*) FROM vehicles WHERE client_id = c.id) as vehicle_count
+            FROM 
+                clients c
+            LEFT JOIN 
+                (SELECT client_id, MIN(id) as first_vehicle_id FROM vehicles GROUP BY client_id) fv
+                ON c.id = fv.client_id
+            LEFT JOIN
+                vehicles v ON fv.first_vehicle_id = v.id
+            """
+            
+            # Warunki filtrowania
+            where_clauses = []
+            
+            # Filtrowanie po tekście
+            if self.filter_text:
+                filter_text = f"%{self.filter_text}%"
+                where_clauses.append("""(
+                    c.name LIKE ? OR 
+                    c.phone_number LIKE ? OR 
+                    v.registration_number LIKE ?
+                )""")
+                params.extend([filter_text, filter_text, filter_text])
+            
+            # Filtrowanie po typie klienta
+            if self.filtered_type != _("Wszyscy"):
+                if self.filtered_type == _("Indywidualni"):
+                    where_clauses.append("c.client_type = 'Indywidualny'")
+                elif self.filtered_type == _("Firmowi"):
+                    where_clauses.append("c.client_type = 'Firma'")
+                elif self.filtered_type == _("Stali"):
+                    where_clauses.append("c.discount > 0")
+                elif self.filtered_type == _("Nowi"):
+                    where_clauses.append("c.discount = 0")
+            
+            # Dodanie warunków WHERE
+            if where_clauses:
+                base_query += " WHERE " + " AND ".join(where_clauses)
+            
+            # Sortowanie
+            sort_field = self.sort_combo.currentText()
+            if sort_field == _("Nazwisko"):
+                base_query += " ORDER BY c.name"
+            elif sort_field == _("Data dodania"):
+                base_query += " ORDER BY c.id DESC"
+            elif sort_field == _("Liczba pojazdów"):
+                base_query += " ORDER BY vehicle_count DESC, c.name"
+            
+            # Zapytanie do pobrania całkowitej liczby rekordów (bez paginacji)
+            count_query = """
+            SELECT COUNT(*) 
+            FROM clients c
+            LEFT JOIN 
+                (SELECT client_id, MIN(id) as first_vehicle_id FROM vehicles GROUP BY client_id) fv
+                ON c.id = fv.client_id
+            LEFT JOIN
+                vehicles v ON fv.first_vehicle_id = v.id
+            """
+            
+            if where_clauses:
+                count_query += " WHERE " + " AND ".join(where_clauses)
+            
+            # Pobierz całkowitą liczbę klientów z filtrami
+            cursor.execute(count_query, params)
+            total_clients = cursor.fetchone()[0]
+            
+            # Oblicz całkowitą liczbę stron
+            self.total_pages = (total_clients + self.records_per_page - 1) // self.records_per_page
+            
+            # Paginacja - dodaj LIMIT i OFFSET
+            offset = self.current_page * self.records_per_page
+            base_query += f" LIMIT {self.records_per_page} OFFSET {offset}"
+            
+            # Wykonaj główne zapytanie
+            cursor.execute(base_query, params)
+            clients = cursor.fetchall()
+            
+            # Pobierz liczby klientów dla poszczególnych zakładek - optymalizacja: 
+            # jedno zapytanie zamiast czterech oddzielnych
+            cursor.execute("""
+                SELECT 
+                    SUM(CASE WHEN client_type = 'Indywidualny' THEN 1 ELSE 0 END) as individual_count,
+                    SUM(CASE WHEN client_type = 'Firma' THEN 1 ELSE 0 END) as company_count,
+                    SUM(CASE WHEN discount > 0 THEN 1 ELSE 0 END) as regular_count,
+                    SUM(CASE WHEN discount = 0 THEN 1 ELSE 0 END) as new_count
+                FROM clients
+            """)
+            
+            counts = cursor.fetchone()
+            individual_count, company_count, regular_count, new_count = counts
+            
+            # Aktualizacja liczby klientów w zakładkach
+            self.tabs_widget.setTabText(0, f"{_('Wszyscy')} ({total_clients})")
+            self.tabs_widget.setTabText(1, f"{_('Indywidualni')} ({individual_count})")
+            self.tabs_widget.setTabText(2, f"{_('Firmowi')} ({company_count})")
+            self.tabs_widget.setTabText(3, f"{_('Stali')} ({regular_count})")
+            self.tabs_widget.setTabText(4, f"{_('Nowi')} ({new_count})")
+            
+            # Wyczyść wszystkie tabele
+            for tab in [self.all_tab, self.individual_tab, self.company_tab, self.regular_tab, self.new_tab]:
+                tab.clients_table.setRowCount(0)
+            
+            # Wypełnij tabele
+            for client in clients:
+                client_id, name, phone, email, client_type, discount, reg_number, vehicle_count = client
+                
+                # Dodaj klienta do tabeli "Wszyscy"
+                self.add_client_to_table(
+                    self.all_tab.clients_table, client_id, name, phone, email, 
+                    reg_number or "-", vehicle_count, client_type, discount
+                )
+                
+                # Dodaj klienta do odpowiedniej tabeli typu
+                if client_type == "Indywidualny":
+                    self.add_client_to_table(
+                        self.individual_tab.clients_table, client_id, name, phone, email, 
+                        reg_number or "-", vehicle_count, client_type, discount
+                    )
+                elif client_type == "Firma":
+                    self.add_client_to_table(
+                        self.company_tab.clients_table, client_id, name, phone, email, 
+                        reg_number or "-", vehicle_count, client_type, discount
+                    )
+                
+                # Dodaj klienta do odpowiedniej tabeli statusu
+                if discount is not None and discount > 0:
+                    self.add_client_to_table(
+                        self.regular_tab.clients_table, client_id, name, phone, email, 
+                        reg_number or "-", vehicle_count, client_type, discount
+                    )
+                else:
+                    self.add_client_to_table(
+                        self.new_tab.clients_table, client_id, name, phone, email, 
+                        reg_number or "-", vehicle_count, client_type, discount
+                    )
+            
+            # Aktualizacja informacji o paginacji
+            displayed_count = len(clients)
+            start_record = offset + 1 if displayed_count > 0 else 0
+            end_record = offset + displayed_count
+            
+            self.records_info.setText(f"{_('Wyświetlanie')} {start_record}-{end_record} {_('z')} {total_clients} {_('rekordów')}")
+            
+            # Aktualizacja przycisków paginacji
+            self.update_pagination_buttons()
+            
+            # Aktualizacja statystyk w kartach
+            self.update_statistics()
+            
+        except Exception as e:
+            logger.error(f"Błąd podczas ładowania klientów: {e}")
+            QMessageBox.critical(self, _("Błąd"), f"{_('Wystąpił błąd podczas ładowania klientów')}:\n{str(e)}")
+
     def setup_tab_content(self, tab):
         """
         Ustawia zawartość zakładki z tabelą klientów.
@@ -1032,7 +1686,6 @@ class ClientsTab(QWidget):
         if index in type_map:
             # Aktualizuj combobox typu i filtr
             self.filtered_type = type_map[index]
-            self.type_combo.setCurrentText(self.filtered_type)
             
             # Załaduj klientów
             self.load_clients()

@@ -113,28 +113,43 @@ def initialize_database(conn):
             CREATE INDEX IF NOT EXISTS idx_vehicles_registration ON vehicles(registration_number)
         ''')
         
-        # Tabela depozytów
-        cursor.execute('''
-            CREATE TABLE IF NOT EXISTS deposits (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                client_id INTEGER,
-                car_model TEXT,
-                registration_number TEXT,
-                tire_brand TEXT,
-                tire_size TEXT,
-                quantity INTEGER DEFAULT 1,
-                location TEXT,
-                deposit_date TEXT,
-                expected_return_date TEXT,
-                status TEXT DEFAULT 'Aktywny',
-                season TEXT,
-                price REAL,
-                vehicle_id INTEGER,
-                created_at TEXT DEFAULT (datetime('now', 'localtime')),
-                FOREIGN KEY(client_id) REFERENCES clients(id),
-                FOREIGN KEY(vehicle_id) REFERENCES vehicles(id)
-            )
-        ''')
+        # Sprawdź, czy tabela deposits istnieje
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='deposits'")
+        if not cursor.fetchone():
+            # Jeśli tabela nie istnieje, utwórz ją z nową strukturą
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS deposits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    deposit_date TEXT NOT NULL,
+                    pickup_date TEXT NOT NULL,
+                    tire_size TEXT NOT NULL,
+                    tire_type TEXT NOT NULL,
+                    quantity INTEGER DEFAULT 4,
+                    location TEXT,
+                    status TEXT DEFAULT 'Aktywny',
+                    notes TEXT,
+                    FOREIGN KEY (client_id) REFERENCES clients(id)
+                )
+            ''')
+            logger.info("Utworzono tabelę deposits z nową strukturą")
+        else:
+            # Tabela już istnieje, sprawdźmy jej strukturę
+            cursor.execute("PRAGMA table_info(deposits)")
+            deposits_columns = [column[1] for column in cursor.fetchall()]
+            
+            # Sprawdzamy czy tabela ma już nową strukturę, jeśli nie, dodajemy brakujące kolumny
+            if "deposit_date" not in deposits_columns:
+                cursor.execute("ALTER TABLE deposits ADD COLUMN deposit_date TEXT DEFAULT (datetime('now', 'localtime'))")
+                logger.info("Dodano kolumnę deposit_date do tabeli deposits")
+            
+            if "pickup_date" not in deposits_columns:
+                cursor.execute("ALTER TABLE deposits ADD COLUMN pickup_date TEXT DEFAULT (datetime('now', '+6 months', 'localtime'))")
+                logger.info("Dodano kolumnę pickup_date do tabeli deposits")
+            
+            if "tire_type" not in deposits_columns:
+                cursor.execute("ALTER TABLE deposits ADD COLUMN tire_type TEXT DEFAULT 'Nieznany'")
+                logger.info("Dodano kolumnę tire_type do tabeli deposits")
         
         # Tabela inwentarza opon
         cursor.execute('''
@@ -454,27 +469,52 @@ def initialize_test_data(conn):
             vehicles_data
         )
         
-        # Dodanie przykładowych depozytów
+        # Sprawdź strukturę tabeli deposits
+        cursor.execute("PRAGMA table_info(deposits)")
+        deposit_columns = [column[1] for column in cursor.fetchall()]
+        
         today = datetime.now().strftime("%Y-%m-%d")
         next_season = (datetime.now() + timedelta(days=180)).strftime("%Y-%m-%d")
         
-        deposits_data = [
-            (1, 'Volkswagen Golf', 'WA12345', 'Continental', '205/55 R16', 4, 'A-01-02', today, next_season, 'Aktywny', 'Zimowe', 120.00, 1),
-            (2, 'BMW X5', 'WB54321', 'Michelin', '255/50 R19', 4, 'A-02-03', today, next_season, 'Aktywny', 'Letnie', 180.00, 3),
-            (3, 'Fiat 500', 'WC98765', 'Bridgestone', '175/65 R14', 4, 'B-01-01', today, next_season, 'Aktywny', 'Zimowe', 100.00, 4),
-            (4, 'Mercedes Sprinter', 'WD45678', 'Pirelli', '235/65 R16C', 4, 'B-02-02', today, next_season, 'Aktywny', 'Letnie', 150.00, 5),
-            (5, 'Ford Focus', 'WE87654', 'Goodyear', '205/60 R16', 4, 'C-01-03', today, next_season, 'Aktywny', 'Zimowe', 110.00, 6)
-        ]
-        
-        cursor.executemany(
-            """
-            INSERT INTO deposits (
-                client_id, car_model, registration_number, tire_brand, tire_size,
-                quantity, location, deposit_date, expected_return_date, status, season, price, vehicle_id
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            deposits_data
-        )
+        # Dodanie przykładowych depozytów odpowiednio do struktury tabeli
+        if 'deposit_date' in deposit_columns and 'pickup_date' in deposit_columns and 'tire_type' in deposit_columns:
+            # Nowa struktura
+            deposits_data = [
+                (1, today, next_season, '205/55 R16', 'Zimowe', 4, 'A-01-02', 'Aktywny', 'Opony zimowe dla Volkswagena'),
+                (2, today, next_season, '255/50 R19', 'Letnie', 4, 'A-02-03', 'Aktywny', 'Opony letnie dla BMW'),
+                (3, today, next_season, '175/65 R14', 'Zimowe', 4, 'B-01-01', 'Aktywny', 'Opony zimowe dla Fiata'),
+                (4, today, next_season, '235/65 R16C', 'Letnie', 4, 'B-02-02', 'Aktywny', 'Opony letnie dla Sprintera'),
+                (5, today, next_season, '205/60 R16', 'Zimowe', 4, 'C-01-03', 'Aktywny', 'Opony zimowe dla Forda')
+            ]
+            
+            cursor.executemany(
+                """
+                INSERT INTO deposits (
+                    client_id, deposit_date, pickup_date, tire_size, tire_type,
+                    quantity, location, status, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                deposits_data
+            )
+        elif 'car_model' in deposit_columns and 'registration_number' in deposit_columns and 'tire_brand' in deposit_columns:
+            # Stara struktura
+            deposits_data = [
+                (1, 'Volkswagen Golf', 'WA12345', 'Continental', '205/55 R16', 4, 'A-01-02', today, next_season, 'Aktywny', 'Zimowe', 120.00, 1),
+                (2, 'BMW X5', 'WB54321', 'Michelin', '255/50 R19', 4, 'A-02-03', today, next_season, 'Aktywny', 'Letnie', 180.00, 3),
+                (3, 'Fiat 500', 'WC98765', 'Bridgestone', '175/65 R14', 4, 'B-01-01', today, next_season, 'Aktywny', 'Zimowe', 100.00, 4),
+                (4, 'Mercedes Sprinter', 'WD45678', 'Pirelli', '235/65 R16C', 4, 'B-02-02', today, next_season, 'Aktywny', 'Letnie', 150.00, 5),
+                (5, 'Ford Focus', 'WE87654', 'Goodyear', '205/60 R16', 4, 'C-01-03', today, next_season, 'Aktywny', 'Zimowe', 110.00, 6)
+            ]
+            
+            cursor.executemany(
+                """
+                INSERT INTO deposits (
+                    client_id, car_model, registration_number, tire_brand, tire_size,
+                    quantity, location, deposit_date, expected_return_date, status, season, price, vehicle_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                deposits_data
+            )
         
         # Dodanie przykładowych opon na stanie
         inventory_data = [
@@ -651,7 +691,55 @@ def check_and_upgrade_database(conn):
             
             logger.info("Utworzono tabelę vehicles i jej indeksy")
         
-        # 2. Sprawdzenie dodatkowych kolumn w tabeli clients
+        # 2. Sprawdzenie tabeli deposits i jej struktury
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='deposits'")
+        if not cursor.fetchone():
+            # Tabela deposits nie istnieje - utwórz zgodnie z nową strukturą
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS deposits (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    client_id INTEGER NOT NULL,
+                    deposit_date TEXT NOT NULL,
+                    pickup_date TEXT NOT NULL,
+                    tire_size TEXT NOT NULL,
+                    tire_type TEXT NOT NULL,
+                    quantity INTEGER DEFAULT 4,
+                    location TEXT,
+                    status TEXT DEFAULT 'Aktywny',
+                    notes TEXT,
+                    FOREIGN KEY (client_id) REFERENCES clients(id)
+                )
+            ''')
+            logger.info("Utworzono tabelę deposits (nowa struktura)")
+        else:
+            # Sprawdzenie struktury istniejącej tabeli deposits
+            cursor.execute("PRAGMA table_info(deposits)")
+            columns = {column[1] for column in cursor.fetchall()}
+            
+            # Sprawdź, czy tabela ma nową strukturę
+            required_columns = {'deposit_date', 'pickup_date', 'tire_type'}
+            if not all(col in columns for col in required_columns):
+                logger.info("Dodawanie brakujących kolumn do tabeli deposits")
+                
+                # Dodaj brakujące kolumny z nowej struktury
+                if 'deposit_date' not in columns and 'expected_return_date' not in columns:
+                    cursor.execute("ALTER TABLE deposits ADD COLUMN deposit_date TEXT DEFAULT (datetime('now', 'localtime'))")
+                    logger.info("Dodano kolumnę deposit_date do tabeli deposits")
+                
+                if 'pickup_date' not in columns:
+                    cursor.execute("ALTER TABLE deposits ADD COLUMN pickup_date TEXT DEFAULT (datetime('now', '+6 months', 'localtime'))")
+                    logger.info("Dodano kolumnę pickup_date do tabeli deposits")
+                
+                if 'tire_type' not in columns and 'season' in columns:
+                    # Migracja danych z kolumny season do tire_type
+                    cursor.execute("ALTER TABLE deposits ADD COLUMN tire_type TEXT")
+                    cursor.execute("UPDATE deposits SET tire_type = season WHERE tire_type IS NULL")
+                    logger.info("Dodano kolumnę tire_type do tabeli deposits i skopiowano dane z kolumny season")
+                elif 'tire_type' not in columns:
+                    cursor.execute("ALTER TABLE deposits ADD COLUMN tire_type TEXT DEFAULT 'Nieznany'")
+                    logger.info("Dodano kolumnę tire_type do tabeli deposits")
+        
+        # 3. Sprawdzenie dodatkowych kolumn w tabeli clients
         cursor.execute("PRAGMA table_info(clients)")
         columns = [column[1] for column in cursor.fetchall()]
         
@@ -683,32 +771,6 @@ def check_and_upgrade_database(conn):
             
             # Dodanie indeksu na created_at
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_clients_created_at ON clients(created_at)")
-        
-        # 3. Sprawdzenie kolumn vehicle_id w powiązanych tabelach
-        
-        # Tabela deposits
-        cursor.execute("PRAGMA table_info(deposits)")
-        deposits_columns = [column[1] for column in cursor.fetchall()]
-        
-        if "vehicle_id" not in deposits_columns:
-            cursor.execute("ALTER TABLE deposits ADD COLUMN vehicle_id INTEGER REFERENCES vehicles(id)")
-            logger.info("Dodano kolumnę vehicle_id do tabeli deposits")
-        
-        # Tabela appointments
-        cursor.execute("PRAGMA table_info(appointments)")
-        appointments_columns = [column[1] for column in cursor.fetchall()]
-        
-        if "vehicle_id" not in appointments_columns:
-            cursor.execute("ALTER TABLE appointments ADD COLUMN vehicle_id INTEGER REFERENCES vehicles(id)")
-            logger.info("Dodano kolumnę vehicle_id do tabeli appointments")
-        
-        # Tabela orders
-        cursor.execute("PRAGMA table_info(orders)")
-        orders_columns = [column[1] for column in cursor.fetchall()]
-        
-        if "vehicle_id" not in orders_columns:
-            cursor.execute("ALTER TABLE orders ADD COLUMN vehicle_id INTEGER REFERENCES vehicles(id)")
-            logger.info("Dodano kolumnę vehicle_id do tabeli orders")
         
         # Zatwierdzenie zmian
         conn.commit()

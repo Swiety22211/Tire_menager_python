@@ -24,7 +24,10 @@ from PySide6.QtCore import Qt, QSize, QTimer, QSettings, Signal, Slot
 from ui.tabs.dashboard_tab import DashboardTab
 from ui.dialogs.settings_dialog import SettingsDialog
 from ui.notifications import NotificationManager, NotificationTypes
+from ui.tabs.orders_tab import OrdersTab
 from utils.paths import ICONS_DIR, APP_DATA_DIR, DATABASE_PATH, BACKUP_DIR, resource_path
+from ui.tabs.deposits_tab import DepositsTab
+from ui.tabs.inventory_tab import InventoryTab
 
 # Dodaj nową stałą dla katalogu images
 IMAGES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources", "images")
@@ -279,20 +282,24 @@ class MainWindow(QMainWindow):
         self.dashboard_tab = DashboardTab(self.conn)
         self.content_stack.addWidget(self.dashboard_tab)
         
-        # Moduł Zamówienia (placeholder)
-        orders_placeholder = QWidget()
-        orders_layout = QVBoxLayout(orders_placeholder)
-        orders_label = QLabel("Moduł Zamówienia - w budowie")
-        orders_label.setAlignment(Qt.AlignCenter)
-        orders_layout.addWidget(orders_label)
-        self.content_stack.addWidget(orders_placeholder)
+        # Moduł Zamówienia
+        self.orders_tab = OrdersTab(self.conn)
+        self.content_stack.addWidget(self.orders_tab)
         
         # Moduł Klienci
         self.clients_tab = ClientsTab(self.conn)
         self.content_stack.addWidget(self.clients_tab)
         
+        # Moduł Depozytów
+        self.deposits_tab = DepositsTab(self.conn)  # Użyj self.conn zamiast self.db_connection
+        self.content_stack.addWidget(self.deposits_tab)
+
+        # Moduł Magazynu
+        self.inventory_tab = InventoryTab(self.conn)  # Użyj self.conn zamiast self.db_connection
+        self.content_stack.addWidget(self.inventory_tab)
+
         # Pozostałe moduły - placeholdery
-        modules = ["deposits", "inventory", "finances", "pricelist"]
+        modules = ["finances", "pricelist"]
         for module in modules:
             placeholder = QWidget()
             layout = QVBoxLayout(placeholder)
@@ -486,7 +493,7 @@ class MainWindow(QMainWindow):
         footer_layout.setContentsMargins(15, 0, 15, 0)
         
         # Informacje o rekordach
-        self.records_label = QLabel("Depozyty: 124 | Klienci: 87 | Opony: 256")
+        self.records_label = QLabel("Depozyty: - | Klienci: - | Opony: -")
         self.records_label.setStyleSheet("color: #bdc3c7; font-size: 13px;")
         
         # Status - przeniesiemy tu komunikaty ze statusbara
@@ -759,12 +766,15 @@ class MainWindow(QMainWindow):
     
     def add_order(self):
         """Obsługa dodawania nowego zamówienia."""
-        self.showStatusMessage("Dodawanie nowego zamówienia...", 3000)
-        NotificationManager.get_instance().show_notification(
-            "Funkcja dodawania zamówień nie jest jeszcze zaimplementowana.",
-            NotificationTypes.WARNING,
-            duration=3000
-        )
+        from ui.dialogs.order_dialog import OrderDialog
+        dialog = OrderDialog(self.conn, parent=self)
+        if dialog.exec() == QDialog.Accepted:
+            self.refresh_data()
+            NotificationManager.get_instance().show_notification(
+                "Dodano nowe zamówienie",
+                NotificationTypes.SUCCESS,
+                duration=3000
+            )
     
     def add_inventory_item(self):
         """Obsługa dodawania nowej opony do magazynu."""
