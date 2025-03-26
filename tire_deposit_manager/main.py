@@ -20,7 +20,7 @@ from PySide6.QtGui import QPixmap, QIcon
 from PySide6.QtCore import Qt, QTimer
 
 from ui.main_window import MainWindow
-from utils.database import create_connection, initialize_database, check_and_upgrade_database
+from utils.database import create_connection, initialize_database, check_and_upgrade_database, check_and_add_missing_columns
 from utils.paths import APP_DATA_DIR, LOGS_DIR, ICONS_DIR, ensure_directories_exist
 from utils.styles import get_style_sheet  # Nowa funkcja do pobierania stylów
 
@@ -130,7 +130,10 @@ def main():
         
         # Aktualizacja struktury bazy danych, jeśli potrzebna
         check_and_upgrade_database(conn)
-        
+
+        # Sprawdź i dodaj brakujące kolumny
+        check_and_add_missing_columns(conn)
+                
         # Aktualizacja ekranu powitalnego
         if splash:
             splash.showMessage("Ładowanie interfejsu użytkownika...", Qt.AlignBottom | Qt.AlignHCenter, Qt.white)

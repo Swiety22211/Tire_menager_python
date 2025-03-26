@@ -215,6 +215,13 @@ STYLES = {
             padding: 10px;
         }
     """,
+    "STAT_CARD_LIGHT_BLUE": """
+        QFrame#statCard {
+            background-color: #4dabf7;
+            border-radius: 10px;
+            padding: 10px;
+        }
+    """,
     "STAT_LABEL": """
         QLabel {
             color: white;
@@ -642,38 +649,39 @@ class InventoryTab(QWidget):
         
         main_layout.addLayout(header_layout)
         
+
         # Panel statystyk
         stats_layout = QHBoxLayout()
         stats_layout.setSpacing(15)
-        
+
         # Karta statystyczna: Opony nowe
         self.new_tires_card = self.create_stat_card(
             "🆕", _("Opony nowe"), "0", 
             STYLES["STAT_CARD_BLUE"]
         )
         stats_layout.addWidget(self.new_tires_card)
-        
+
         # Karta statystyczna: Opony używane
         self.used_tires_card = self.create_stat_card(
             "♻️", _("Opony używane"), "0", 
             STYLES["STAT_CARD_GREEN"]
         )
         stats_layout.addWidget(self.used_tires_card)
-        
+
         # Karta statystyczna: Wartość magazynu
         self.stock_value_card = self.create_stat_card(
             "💰", _("Wartość magazynu"), "0 zł", 
             STYLES["STAT_CARD_PURPLE"]
         )
         stats_layout.addWidget(self.stock_value_card)
-        
+
         # Karta statystyczna: Niski stan
         self.low_stock_card = self.create_stat_card(
             "⚠️", _("Niski stan"), "0", 
             STYLES["STAT_CARD_ORANGE"]
         )
         stats_layout.addWidget(self.low_stock_card)
-        
+
         main_layout.addLayout(stats_layout)
         
         # Zakładki typów widoku
@@ -1981,8 +1989,8 @@ class InventoryTab(QWidget):
             result = cursor.fetchone()
             self.total_new_tires = result['total'] or 0
             
-            # Aktualizuj kartę statystyki
-            self.update_stat_card(self.new_tires_card, str(self.total_new_tires))
+            # Aktualizuj kartę statystyki - używamy bezpośrednio atrybutu value_label
+            self.new_tires_card.value_label.setText(str(self.total_new_tires))
             
             # Liczba używanych opon
             cursor.execute("""
@@ -1993,8 +2001,8 @@ class InventoryTab(QWidget):
             result = cursor.fetchone()
             self.total_used_tires = result['total'] or 0
             
-            # Aktualizuj kartę statystyki
-            self.update_stat_card(self.used_tires_card, str(self.total_used_tires))
+            # Aktualizuj kartę statystyki - używamy bezpośrednio atrybutu value_label
+            self.used_tires_card.value_label.setText(str(self.total_used_tires))
             
             # Wartość magazynu
             cursor.execute("""
@@ -2005,8 +2013,8 @@ class InventoryTab(QWidget):
             result = cursor.fetchone()
             self.total_stock_value = result['value'] or 0.0
             
-            # Aktualizuj kartę statystyki
-            self.update_stat_card(self.stock_value_card, f"{self.total_stock_value:.2f} zł")
+            # Aktualizuj kartę statystyki - używamy bezpośrednio atrybutu value_label
+            self.stock_value_card.value_label.setText(f"{self.total_stock_value:.2f} zł")
             
             # Liczba pozycji o niskim stanie (ilość <= 2)
             cursor.execute("""
@@ -2017,8 +2025,8 @@ class InventoryTab(QWidget):
             result = cursor.fetchone()
             self.low_stock_count = result['count'] or 0
             
-            # Aktualizuj kartę statystyki
-            self.update_stat_card(self.low_stock_card, str(self.low_stock_count))
+            # Aktualizuj kartę statystyki - używamy bezpośrednio atrybutu value_label
+            self.low_stock_card.value_label.setText(str(self.low_stock_count))
             
         except Exception as e:
             logger.error(f"Błąd podczas ładowania statystyk magazynu: {e}")
@@ -2027,64 +2035,52 @@ class InventoryTab(QWidget):
                 NotificationTypes.ERROR
             )
 
-    def update_stat_card(self, card, value):
-        """
-        Aktualizuje zawartość karty statystycznej.
-        
-        Args:
-            card (QFrame): Karta statystyczna do aktualizacji
-            value (str): Wartość do wyświetlenia
-        """
-        # Znajdź etykietę z wartością (zawsze drugi element)
-        for child in card.children():
-            if isinstance(child, QLabel) and hasattr(child, 'objectName') and child.objectName() == "statValue":
-                child.setText(value)
-                break
-
     def create_stat_card(self, icon, title, value, style):
         """
-        Tworzy kartę statystyczną.
+        Tworzy kartę statystyczną z wybraną ikoną, tytułem i wartością.
         
         Args:
-            icon (str): Ikona (emoji)
-            title (str): Tytuł statystyki
+            icon (str): Emotikona/ikona
+            title (str): Tytuł karty
             value (str): Wartość statystyki
-            style (str): Styl CSS dla karty
+            style (str): Style CSS dla karty
             
         Returns:
-            QFrame: Utworzona karta statystyczna
+            QFrame: Karta statystyczna
         """
         card = QFrame()
         card.setObjectName("statCard")
-        card.setStyleSheet(style)
         card.setMinimumHeight(100)
+        card.setStyleSheet(style)
         
         layout = QVBoxLayout(card)
-        layout.setContentsMargins(15, 15, 15, 15)
+        layout.setContentsMargins(15, 10, 15, 10)
         layout.setSpacing(5)
         
-        # Tytuł z ikoną
+        # Tytuł z ikoną - z przezroczystym tłem
         title_layout = QHBoxLayout()
-        title_layout.setSpacing(10)
+        title_layout.setSpacing(5)
+        title_layout.setContentsMargins(0, 0, 0, 0)
         
         icon_label = QLabel(icon)
-        icon_label.setStyleSheet("font-size: 18px;")
+        icon_label.setStyleSheet("font-size: 16px; background: transparent;")
         title_layout.addWidget(icon_label)
         
         title_label = QLabel(title)
-        title_label.setStyleSheet(STYLES["STAT_TITLE"])
+        title_label.setStyleSheet("color: rgba(255, 255, 255, 0.8); font-size: 14px; background: transparent;")
         title_layout.addWidget(title_label)
         
         title_layout.addStretch(1)
         
         layout.addLayout(title_layout)
         
-        # Wartość
+        # Wartość - również z przezroczystym tłem
         value_label = QLabel(value)
-        value_label.setObjectName("statValue")
-        value_label.setStyleSheet(STYLES["STAT_LABEL"])
-        value_label.setAlignment(Qt.AlignRight)
+        value_label.setStyleSheet("color: white; font-weight: bold; font-size: 28px; background: transparent;")
         layout.addWidget(value_label)
+        
+        # Zapisanie referencji do etykiety wartości
+        card.value_label = value_label
         
         return card
 

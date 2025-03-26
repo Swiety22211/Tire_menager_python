@@ -22,7 +22,7 @@ from PySide6.QtCore import Qt, QSize, QTimer, QSettings, Signal, Slot
 
 # Import własnych modułów aplikacji
 from ui.tabs.dashboard_tab import DashboardTab
-from ui.dialogs.settings_dialog import SettingsDialog
+from ui.tabs.settings_tab import SettingsTab 
 from ui.notifications import NotificationManager, NotificationTypes
 from ui.tabs.orders_tab import OrdersTab
 from utils.paths import ICONS_DIR, APP_DATA_DIR, DATABASE_PATH, BACKUP_DIR, resource_path
@@ -309,9 +309,11 @@ class MainWindow(QMainWindow):
             self.content_stack.addWidget(placeholder)
         
         # Moduł Ustawienia
-        settings_tab = QWidget()
-        settings_layout = QVBoxLayout(settings_tab)
-        self.content_stack.addWidget(settings_tab)
+        self.settings_tab = SettingsTab()
+        self.content_stack.addWidget(self.settings_tab)
+
+        # Połącz sygnał zapisania ustawień z odpowiednią metodą
+        self.settings_tab.settingsSaved.connect(self.on_settings_saved)
         
         content_layout.addWidget(self.content_stack)
         
@@ -479,7 +481,19 @@ class MainWindow(QMainWindow):
         header_layout.addWidget(buttons_container)
         
         parent_layout.addWidget(header_frame)
-    
+
+    def on_settings_saved(self):
+        """Obsługuje zdarzenie zapisania ustawień."""
+        # Zastosuj nowe ustawienia
+        self.load_settings()
+        
+        # Pokazuj powiadomienie
+        NotificationManager.get_instance().show_notification(
+            "Ustawienia zostały zapisane.",
+            NotificationTypes.SUCCESS,
+            duration=3000
+        )
+
     # W metodzie create_footer()
     def create_footer(self, parent_layout):
         """Tworzy stopkę aplikacji."""
@@ -620,10 +634,6 @@ class MainWindow(QMainWindow):
             # Aktualizacja tytułu
             self.title_label.setText(module_title.get(module, ""))
             
-            
-            # Specjalne obsługa dla modułu ustawień
-            if module == "settings":
-                self.show_settings()
         
         # Aktualizacja wyglądu przycisków menu
         for m, btn in self.menu_buttons.items():
@@ -785,17 +795,6 @@ class MainWindow(QMainWindow):
             duration=3000
         )
     
-    def show_settings(self):
-        """Pokazuje okno dialogowe ustawień."""
-        dialog = SettingsDialog(self)
-        if dialog.exec() == QDialog.Accepted:
-            # Zastosuj nowe ustawienia
-            self.load_settings()
-            NotificationManager.get_instance().show_notification(
-                "Ustawienia zostały zapisane.",
-                NotificationTypes.SUCCESS,
-                duration=3000
-            )
     
     def load_settings(self):
         """Ładuje ustawienia aplikacji."""

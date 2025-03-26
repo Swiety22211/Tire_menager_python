@@ -157,10 +157,14 @@ def initialize_database(conn):
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 brand_model TEXT NOT NULL,
                 size TEXT NOT NULL,
+                manufacturer TEXT,
+                model TEXT,
                 quantity INTEGER DEFAULT 0,
                 price REAL,
                 dot TEXT,
                 season_type TEXT,
+                condition TEXT DEFAULT 'Nowy',
+                status TEXT DEFAULT 'Dostępny',
                 notes TEXT,
                 created_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
@@ -342,7 +346,26 @@ def initialize_database(conn):
             logger.info("Zaktualizowano typy istniejących klientów")
         
         logger.info("Struktura bazy danych została zainicjalizowana")
+
+        # Sprawdź, czy kolumna condition istnieje w tabeli inventory
+        cursor.execute("PRAGMA table_info(inventory)")
+        inventory_columns = [column[1] for column in cursor.fetchall()]
         
+        # Dodaj kolumnę condition, jeśli nie istnieje
+        if "condition" not in inventory_columns:
+            cursor.execute("ALTER TABLE inventory ADD COLUMN condition TEXT DEFAULT 'Nowy'")
+            logger.info("Dodano kolumnę condition do tabeli inventory")
+        
+        # Dodaj kolumnę manufacturer, jeśli nie istnieje
+        if "manufacturer" not in inventory_columns:
+            cursor.execute("ALTER TABLE inventory ADD COLUMN manufacturer TEXT")
+            logger.info("Dodano kolumnę manufacturer do tabeli inventory")
+            
+            # Opcjonalnie, zaktualizuj istniejące rekordy, ustawiając manufacturer na podstawie brand_model
+            cursor.execute("UPDATE inventory SET manufacturer = substr(brand_model, 1, instr(brand_model, ' ') - 1) WHERE brand_model LIKE '% %'")
+            logger.info("Zaktualizowano dane w kolumnie manufacturer")
+            conn.commit()      
+
     except Exception as e:
         conn.rollback()
         logger.error(f"Błąd podczas inicjalizacji bazy danych: {e}")
@@ -864,4 +887,58 @@ def migrate_deposits_to_vehicles(conn):
     except Exception as e:
         conn.rollback()
         logger.error(f"Błąd podczas migracji depozytów: {e}")
+        return False
+    
+# Funkcja do sprawdzenia i dodania brakujących kolumn
+def check_and_add_missing_columns(conn):
+    """
+    Sprawdza i dodaje brakujące kolumny do tabel w bazie danych.
+    
+    Args:
+        conn: Połączenie z bazą danych SQLite
+        
+    Returns:
+        bool: True jeśli operacja zakończyła się sukcesem, False w przeciwnym razie
+    """
+    try:
+        cursor = conn.cursor()
+        
+        # Sprawdź i dodaj brakujące kolumny do tabeli inventory
+        cursor.execute("PRAGMA table_info(inventory)")
+        columns = {column[1] for column in cursor.fetchall()}
+        
+        # Lista kolumn do dodania
+        columns_to_add = {
+            "condition": "TEXT DEFAULT 'Nowy'",
+            "manufacturer": "TEXT",
+            "model": "TEXT",
+            "status": "TEXT DEFAULT 'Dostępny'",
+            "type": "TEXT DEFAULT 'Opona'"  # Dodana kolumna type
+        }
+        
+        for column, definition in columns_to_add.items():
+            if column not in columns:
+                cursor.execute(f"ALTER TABLE inventory ADD COLUMN {column} {definition}")
+                logger.info(f"Dodano kolumnę {column} do tabeli inventory")
+        
+        # Aktualizuj dane w kolumnach
+        if "model" in columns_to_add or "manufacturer" in columns_to_add:
+            cursor.execute("""
+            UPDATE inventory 
+            SET model = CASE
+                WHEN instr(brand_model, ' ') > 0 THEN substr(brand_model, instr(brand_model, ' ') + 1)
+                ELSE ''
+            END,
+            manufacturer = CASE
+                WHEN instr(brand_model, ' ') > 0 THEN substr(brand_model, 1, instr(brand_model, ' ') - 1)
+                ELSE brand_model
+            END
+            WHERE (model IS NULL OR model = '') AND brand_model LIKE '% %'
+            """)
+        
+        # Zatwierdź zmiany
+        conn.commit()
+        return True
+    except Exception as e:
+        logger.error(f"Błąd podczas dodawania brakujących kolumn: {e}")
         return False
