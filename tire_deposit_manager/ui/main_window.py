@@ -28,6 +28,7 @@ from ui.tabs.orders_tab import OrdersTab
 from utils.paths import ICONS_DIR, APP_DATA_DIR, DATABASE_PATH, BACKUP_DIR, resource_path
 from ui.tabs.deposits_tab import DepositsTab
 from ui.tabs.inventory_tab import InventoryTab
+from ui.tabs.finances_tab import FinancesTab
 
 # Dodaj nową stałą dla katalogu images
 IMAGES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources", "images")
@@ -298,8 +299,12 @@ class MainWindow(QMainWindow):
         self.inventory_tab = InventoryTab(self.conn)  # Użyj self.conn zamiast self.db_connection
         self.content_stack.addWidget(self.inventory_tab)
 
+        # Moduł Finanse
+        self.finances_tab = FinancesTab(self.conn)
+        self.content_stack.addWidget(self.finances_tab)
+
         # Pozostałe moduły - placeholdery
-        modules = ["finances", "pricelist"]
+        modules = [ "pricelist"]
         for module in modules:
             placeholder = QWidget()
             layout = QVBoxLayout(placeholder)

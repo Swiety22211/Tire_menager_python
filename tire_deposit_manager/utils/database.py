@@ -366,6 +366,16 @@ def initialize_database(conn):
             logger.info("Zaktualizowano dane w kolumnie manufacturer")
             conn.commit()      
 
+        if "purchase_price" not in inventory_columns:
+            cursor.execute("ALTER TABLE inventory ADD COLUMN purchase_price REAL DEFAULT 0.0")
+            logger.info("Dodano kolumnę purchase_price do tabeli inventory")
+
+        # Sprawdź, czy kolumna bieznik istnieje w tabeli inventory
+        if "bieznik" not in inventory_columns:
+            cursor.execute("ALTER TABLE inventory ADD COLUMN bieznik REAL DEFAULT NULL")
+            logger.info("Dodano kolumnę bieznik do tabeli inventory")
+
+
     except Exception as e:
         conn.rollback()
         logger.error(f"Błąd podczas inicjalizacji bazy danych: {e}")
