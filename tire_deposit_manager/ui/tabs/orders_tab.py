@@ -16,10 +16,10 @@ from PySide6.QtWidgets import (
     QLineEdit, QComboBox, QTableWidget, QTableWidgetItem, 
     QHeaderView, QMenu, QAbstractItemView, QDialog, QFileDialog,
     QFrame, QSplitter, QToolButton, QScrollArea, QMessageBox,
-    QStyledItemDelegate, QSpacerItem, QSizePolicy
+    QStyledItemDelegate, QSpacerItem, QSizePolicy, QDialogButtonBox
 )
 from PySide6.QtGui import QIcon, QAction, QColor, QFont, QPainter, QPixmap
-from PySide6.QtCore import Qt, QEvent, Signal, QDate, QRect
+from PySide6.QtCore import Qt, QEvent, Signal, QDate, QRect, QSettings
 
 from ui.dialogs.order_dialog import OrderDialog
 from utils.exporter import export_data_to_excel, export_data_to_pdf
@@ -1166,6 +1166,21 @@ class OrdersTab(QWidget):
             delete_action = menu.addAction("🗑️ " + _("Usuń zamówienie"))
             delete_action.triggered.connect(lambda: self.delete_order(order_id))
             
+            # Po istniejącym menu, przed menu.exec():
+            menu.addSeparator()
+
+            # Dodaj menu komunikacji
+            comm_menu = menu.addMenu("📱 " + _("Komunikacja"))
+            comm_menu.setStyleSheet(STYLES["MENU"])
+
+            # Email
+            send_email_action = comm_menu.addAction("📧 " + _("Wyślij email"))
+            send_email_action.triggered.connect(lambda: self.send_email_to_client(order_id))
+
+            # SMS
+            send_sms_action = comm_menu.addAction("📱 " + _("Wyślij SMS"))
+            send_sms_action.triggered.connect(lambda: self.send_sms_to_client(order_id))            
+
             # Wyświetlenie menu w lokalizacji przycisku
             button_pos = self.orders_table.visualItemRect(self.orders_table.item(row, 6)).center()
             menu.exec(self.orders_table.viewport().mapToGlobal(button_pos))
@@ -1203,6 +1218,13 @@ class OrdersTab(QWidget):
         edit_action = menu.addAction(f"✏️ {_('Edytuj zamówienie')}")
         menu.addSeparator()
         
+        # Dodaj opcje komunikacji bezpośrednio do menu głównego (jak w deposits_tab.py)
+        print_label_action = menu.addAction(f"🏷️ {_('Generuj etykietę')}")
+        print_receipt_action = menu.addAction(f"📃 {_('Generuj potwierdzenie')}")
+        send_email_action = menu.addAction(f"📧 {_('Wyślij powiadomienie email')}")
+        send_sms_action = menu.addAction(f"📱 {_('Wyślij powiadomienie SMS')}")
+        menu.addSeparator()
+        
         # Opcje zmiany statusu
         status = self.orders_table.item(row, 4).text()
         status_menu = menu.addMenu(f"🔄 {_('Zmień status')}")
@@ -1213,7 +1235,7 @@ class OrdersTab(QWidget):
             if status != status_option:
                 action = status_menu.addAction(status_option)
                 action.triggered.connect(lambda checked=False, oid=order_id, st=status_option: 
-                                         self.change_order_status(oid, st))
+                                        self.change_order_status(oid, st))
         
         menu.addSeparator()
         delete_action = menu.addAction(f"🗑️ {_('Usuń zamówienie')}")
@@ -1227,7 +1249,23 @@ class OrdersTab(QWidget):
             self.edit_order(order_id)
         elif action == delete_action:
             self.delete_order(order_id)
-    
+        elif action == send_email_action:
+            self.send_email_to_client(order_id)
+        elif action == send_sms_action:
+            self.send_sms_to_client(order_id)
+        elif action == print_label_action:
+            # Dodaj obsługę generowania etykiety (jeśli masz taką funkcję)
+            NotificationManager.get_instance().show_notification(
+                f"Funkcja generowania etykiety zostanie dostępna wkrótce.",
+                NotificationTypes.INFO
+            )
+        elif action == print_receipt_action:
+            # Dodaj obsługę generowania potwierdzenia (jeśli masz taką funkcję)
+            NotificationManager.get_instance().show_notification(
+                f"Funkcja generowania potwierdzenia zostanie dostępna wkrótce.",
+                NotificationTypes.INFO
+            )
+
     def add_order(self):
         """Otwiera dialog dodawania nowego zamówienia."""
         try:
@@ -1727,3 +1765,1585 @@ class OrdersTab(QWidget):
             f"🔄 {_('Dane zamówień odświeżone')}",
             NotificationTypes.INFO
         )
+
+    def send_email_to_client(self, order_id):
+        """
+        Wysyła email do klienta związany z zamówieniem.
+        
+        Args:
+            order_id (int): ID zamówienia
+        """
+        try:
+            # Pobierz dane zamówienia
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT o.id, o.order_date, o.status, o.total_amount, o.notes,
+                    c.name as client_name, c.email, c.phone_number
+                FROM orders o
+                JOIN clients c ON o.client_id = c.id
+                WHERE o.id = ?
+            """, (order_id,))
+            
+            order = cursor.fetchone()
+            
+            if not order:
+                NotificationManager.get_instance().show_notification(
+                    f"Nie znaleziono zamówienia o ID {order_id}",
+                    NotificationTypes.ERROR
+                )
+                return
+            
+            # Sprawdź czy klient ma email
+            if not order['email']:
+                QMessageBox.warning(
+                    self,
+                    _("Brak adresu email"),
+                    _("Klient nie posiada adresu email. Dodaj adres email do konta klienta przed wysłaniem wiadomości.")
+                )
+                return
+            
+            # Pobierz ustawienia email z QSettings
+            settings = QSettings("TireDepositManager", "Settings")
+            email_address = settings.value("email_address", "")
+            email_password = settings.value("email_password", "")
+            smtp_server = settings.value("smtp_server", "")
+            smtp_port = settings.value("smtp_port", 587, type=int)
+            use_ssl = settings.value("use_ssl", True, type=bool)
+            
+            # Sprawdź czy ustawienia email są skonfigurowane
+            if not all([email_address, email_password, smtp_server, smtp_port]):
+                QMessageBox.warning(
+                    self,
+                    _("Brak konfiguracji email"),
+                    _("Konfiguracja email nie jest kompletna. Uzupełnij ustawienia w zakładce Ustawienia → Komunikacja.")
+                )
+                return
+            
+            # Pobierz szablony email
+            try:
+                import json
+                import os
+                from utils.paths import CONFIG_DIR
+                
+                templates_file = os.path.join(CONFIG_DIR, "templates.json")
+                
+                if os.path.exists(templates_file):
+                    with open(templates_file, 'r', encoding='utf-8') as f:
+                        templates = json.load(f)
+                else:
+                    QMessageBox.warning(
+                        self,
+                        _("Brak szablonów"),
+                        _("Nie znaleziono szablonów email. Skonfiguruj szablony w zakładce Ustawienia → Szablony.")
+                    )
+                    return
+                
+                # POPRAWKA: Zmieniono klucze szablonów, żeby odpowiadały nazwom z UI
+                status = order['status']
+                template_keys = []
+                
+                # Precyzyjne mapowanie kluczy dla różnych statusów
+                if status == _("Nowe"):
+                    template_keys = ["Zamówienie - Nowe", "order_nowe"]
+                elif status == _("W realizacji"):
+                    template_keys = ["Zamówienie - W realizacji", "order_w_realizacji"] 
+                elif status == _("Zakończone"):
+                    template_keys = ["Zamówienie - Zakończone", "order_zakończone"]
+                else:
+                    # Dla pozostałych statusów (np. Anulowane) próbujemy różne warianty nazw
+                    template_keys = [
+                        f"Zamówienie - {status}",
+                        f"Zamówienie {status}",
+                        f"order_{status.lower().replace(' ', '_')}"
+                    ]
+                
+                # Dodaj "Ogólny" jako ostatni fallback
+                template_keys.append("Ogólny")
+                template_keys.append("general")  # Zachowaj kompatybilność wstecz
+                
+                template_found = False
+                template_key = None
+                
+                # Szukaj pierwszego pasującego szablonu w hierarchii kluczy
+                if "email" in templates:
+                    for key in template_keys:
+                        if key in templates["email"]:
+                            template_key = key
+                            template_found = True
+                            logger.info(f"Znaleziono szablon: {template_key}")
+                            break
+                
+                # Jeśli nie znaleziono szablonu, powiadom użytkownika
+                if not template_found:
+                    QMessageBox.warning(
+                        self,
+                        _("Brak szablonu"),
+                        _("Nie znaleziono szablonu email dla wybranego statusu zamówienia. Sprawdź szablony w ustawieniach.")
+                    )
+                    return
+                
+                # Przygotuj dane do szablonu
+                company_name = settings.value("company_name", "")
+                company_address = settings.value("company_address", "")
+                company_phone = settings.value("company_phone", "")
+                company_email = settings.value("company_email", "")
+                company_website = settings.value("company_website", "")
+                
+                # Pobierz pozycje zamówienia
+                cursor.execute("""
+                    SELECT name, quantity, price
+                    FROM order_items
+                    WHERE order_id = ?
+                """, (order_id,))
+                
+                items = cursor.fetchall()
+                
+                # Przygotuj tabelę z pozycjami zamówienia
+                items_table = """
+                <table style="width:100%; border-collapse: collapse;">
+                    <tr style="background-color:#f8f9fa;">
+                        <th style="padding:8px; border:1px solid #ddd; text-align:left;">Nazwa</th>
+                        <th style="padding:8px; border:1px solid #ddd; text-align:center;">Ilość</th>
+                        <th style="padding:8px; border:1px solid #ddd; text-align:right;">Cena</th>
+                    </tr>
+                """
+                
+                for item in items:
+                    items_table += f"""
+                    <tr>
+                        <td style="padding:8px; border:1px solid #ddd;">{item['name']}</td>
+                        <td style="padding:8px; border:1px solid #ddd; text-align:center;">{item['quantity']}</td>
+                        <td style="padding:8px; border:1px solid #ddd; text-align:right;">{item['price']:.2f} zł</td>
+                    </tr>
+                    """
+                
+                items_table += "</table>"
+                
+                # Formatowanie daty
+                from datetime import datetime
+                order_date = datetime.strptime(order['order_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+                
+                # Przygotuj mapowanie zmiennych
+                template_vars = {
+                    "order_id": order_id,
+                    "client_name": order['client_name'],
+                    "client_email": order['email'],
+                    "order_date": order_date,
+                    "status": order['status'],
+                    "total_amount": f"{order['total_amount']:.2f} zł",
+                    "items_table": items_table,
+                    "notes": order['notes'] or "",
+                    "company_name": company_name,
+                    "company_address": company_address,
+                    "company_phone": company_phone,
+                    "company_email": company_email,
+                    "company_website": company_website
+                }
+                
+                # Pobierz szablon i podstaw zmienne
+                email_template = templates["email"][template_key]
+                subject = email_template["subject"]
+                body = email_template["body"]
+                
+                # Podstawianie zmiennych w temacie i treści
+                for key, value in template_vars.items():
+                    subject = subject.replace("{" + key + "}", str(value))
+                    body = body.replace("{" + key + "}", str(value))
+                
+                # Pokaż podgląd wiadomości
+                preview_dialog = QDialog(self)
+                preview_dialog.setWindowTitle(_("Podgląd wiadomości email"))
+                preview_dialog.setMinimumSize(600, 400)
+                
+                layout = QVBoxLayout(preview_dialog)
+                
+                # Dodaj etykietę z informacjami
+                info_label = QLabel(_("Wiadomość zostanie wysłana do: ") + order['email'])
+                layout.addWidget(info_label)
+                
+                # Dodaj informację o użytym szablonie
+                template_info = QLabel(_("Używany szablon: ") + template_key)
+                layout.addWidget(template_info)
+                
+                # Dodaj pole edycji tematu
+                subject_layout = QHBoxLayout()
+                subject_layout.addWidget(QLabel(_("Temat:")))
+                subject_edit = QLineEdit(subject)
+                subject_layout.addWidget(subject_edit)
+                layout.addLayout(subject_layout)
+                
+                # Dodaj podgląd treści (tylko do czytania)
+                from PySide6.QtWebEngineWidgets import QWebEngineView
+                preview = QWebEngineView()
+                preview.setHtml(body)
+                layout.addWidget(preview)
+                
+                # Przyciski
+                buttons = QDialogButtonBox(
+                    QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+                    Qt.Horizontal, 
+                    preview_dialog
+                )
+                buttons.accepted.connect(preview_dialog.accept)
+                buttons.rejected.connect(preview_dialog.reject)
+                layout.addWidget(buttons)
+                
+                # Wyświetl dialog podglądu
+                if preview_dialog.exec() == QDialog.Accepted:
+                    # Wyślij email
+                    try:
+                        import smtplib
+                        from email.mime.text import MIMEText
+                        from email.mime.multipart import MIMEMultipart
+                        
+                        # Aktualizuj temat (jeśli został zmieniony)
+                        subject = subject_edit.text()
+                        
+                        # Przygotuj wiadomość
+                        msg = MIMEMultipart()
+                        msg['From'] = email_address
+                        msg['To'] = order['email']
+                        msg['Subject'] = subject
+                        
+                        msg.attach(MIMEText(body, 'html'))
+                        
+                        # Połącz z serwerem SMTP
+                        if use_ssl:
+                            server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+                        else:
+                            server = smtplib.SMTP(smtp_server, smtp_port)
+                            server.starttls()
+                        
+                        # Logowanie
+                        server.login(email_address, email_password)
+                        
+                        # Wysyłka wiadomości
+                        server.send_message(msg)
+                        
+                        # Zamknięcie połączenia
+                        server.quit()
+                        
+                        # Zapisz log wysłanego emaila
+                        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS order_email_logs (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                order_id INTEGER,
+                                email TEXT,
+                                subject TEXT,
+                                sent_date TEXT,
+                                status TEXT,
+                                FOREIGN KEY (order_id) REFERENCES orders (id)
+                            )
+                        """)
+                        
+                        current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        cursor.execute(
+                            "INSERT INTO order_email_logs (order_id, email, subject, sent_date, status) VALUES (?, ?, ?, ?, ?)",
+                            (order_id, order['email'], subject, current_date, "Wysłany")
+                        )
+                        self.conn.commit()
+                        
+                        NotificationManager.get_instance().show_notification(
+                            f"📧 {_('Email wysłany pomyślnie do')}: {order['client_name']}",
+                            NotificationTypes.SUCCESS
+                        )
+                        
+                    except Exception as e:
+                        logger.error(f"Błąd podczas wysyłania email: {e}")
+                        QMessageBox.critical(
+                            self,
+                            _("Błąd wysyłania"),
+                            _("Nie udało się wysłać wiadomości email:\n\n") + str(e)
+                        )
+                
+            except Exception as e:
+                logger.error(f"Błąd podczas przygotowania email: {e}")
+                QMessageBox.critical(
+                    self,
+                    _("Błąd"),
+                    _("Wystąpił błąd podczas przygotowania wiadomości email:\n\n") + str(e)
+                )
+        
+        except Exception as e:
+            logger.error(f"Błąd podczas wysyłania email: {e}")
+            NotificationManager.get_instance().show_notification(
+                f"Błąd wysyłania email: {e}",
+                NotificationTypes.ERROR
+            )
+
+    def send_sms_to_client(self, order_id):
+        """
+        Wysyła SMS do klienta związany z zamówieniem.
+        
+        Args:
+            order_id (int): ID zamówienia
+        """
+        try:
+            # Pobierz dane zamówienia
+            cursor = self.conn.cursor()
+            cursor.execute("""
+                SELECT o.id, o.order_date, o.status, o.total_amount, o.notes,
+                    c.name as client_name, c.email, c.phone_number
+                FROM orders o
+                JOIN clients c ON o.client_id = c.id
+                WHERE o.id = ?
+            """, (order_id,))
+            
+            order = cursor.fetchone()
+            
+            if not order:
+                NotificationManager.get_instance().show_notification(
+                    f"Nie znaleziono zamówienia o ID {order_id}",
+                    NotificationTypes.ERROR
+                )
+                return
+            
+            # Sprawdź czy klient ma numer telefonu
+            if not order['phone_number']:
+                QMessageBox.warning(
+                    self,
+                    _("Brak numeru telefonu"),
+                    _("Klient nie posiada numeru telefonu. Dodaj numer do konta klienta przed wysłaniem SMS.")
+                )
+                return
+            
+            # Formatuj numer telefonu
+            from utils.sms_sender import format_phone_number
+            formatted_phone = format_phone_number(order['phone_number'])
+            
+            # Pobierz ustawienia SMS z QSettings
+            settings = QSettings("TireDepositManager", "Settings")
+            api_key = settings.value("sms_api_key", "")
+            sender = settings.value("sms_sender", "")
+            enable_sms = settings.value("enable_sms", False, type=bool)
+            
+            # Sprawdź czy SMS są włączone
+            if not enable_sms:
+                QMessageBox.warning(
+                    self,
+                    _("SMS wyłączone"),
+                    _("Wysyłanie SMS jest wyłączone. Włącz je w ustawieniach.")
+                )
+                return
+            
+            # Sprawdź czy ustawienia SMS są skonfigurowane
+            if not all([api_key, sender]):
+                QMessageBox.warning(
+                    self,
+                    _("Brak konfiguracji SMS"),
+                    _("Konfiguracja SMS nie jest kompletna. Uzupełnij ustawienia w zakładce Ustawienia → Komunikacja.")
+                )
+                return
+            
+            # Pobierz szablony SMS
+            try:
+                import json
+                import os
+                from utils.paths import CONFIG_DIR
+                
+                templates_file = os.path.join(CONFIG_DIR, "templates.json")
+                
+                if os.path.exists(templates_file):
+                    with open(templates_file, 'r', encoding='utf-8') as f:
+                        templates = json.load(f)
+                else:
+                    QMessageBox.warning(
+                        self,
+                        _("Brak szablonów"),
+                        _("Nie znaleziono szablonów SMS. Skonfiguruj szablony w zakładce Ustawienia → Szablony.")
+                    )
+                    return
+                    
+                # Status zamówienia determinuje szablon
+                status_to_template = {
+                    _("Nowe"): "Nowe zamówienie",
+                    _("W realizacji"): "Zamówienie w realizacji",
+                    _("Zakończone"): "Zamówienie zakończone",
+                    _("Anulowane"): "Nowe zamówienie"  # Domyślny szablon dla anulowanych
+                }
+                
+                template_name = status_to_template.get(order['status'], "Nowe zamówienie")
+                
+                if "sms_order" not in templates or template_name not in templates["sms_order"]:
+                    # Szablony domyślne, jeśli nie ma zapisanych
+                    default_templates = {
+                        "Nowe zamówienie": "Dziekujemy za zlozenie zamowienia {order_id}. Kwota: {amount} zl. O zmianach statusu bedziemy informowac. {company_name}",
+                        "Zamówienie w realizacji": "Zamowienie {order_id} jest w realizacji. W razie pytan prosimy o kontakt: {company_phone}. {company_name}",
+                        "Zamówienie zakończone": "Zamowienie {order_id} zostalo zrealizowane. Zapraszamy do odbioru. Dziekujemy za wspolprace! {company_name}"
+                    }
+                    template_content = default_templates.get(template_name, "")
+                else:
+                    template_content = templates["sms_order"][template_name]
+                    
+                # Przygotuj dane do szablonu
+                company_name = settings.value("company_name", "")
+                company_phone = settings.value("company_phone", "")
+                
+                # Formatowanie daty
+                from datetime import datetime
+                order_date = datetime.strptime(order['order_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+                
+                # Przygotuj mapowanie zmiennych
+                template_vars = {
+                    "order_id": str(order_id),
+                    "client_name": order['client_name'],
+                    "date": order_date,
+                    "status": order['status'],
+                    "amount": f"{order['total_amount']:.2f}",
+                    "company_name": company_name,
+                    "company_phone": company_phone
+                }
+                
+                # Podstawianie zmiennych w treści
+                message = template_content
+                for key, value in template_vars.items():
+                    message = message.replace("{" + key + "}", str(value))
+                
+                # Pokaż podgląd wiadomości z możliwością edycji
+                from PySide6.QtWidgets import QDialog, QVBoxLayout, QLabel, QTextEdit, QDialogButtonBox
+                
+                preview_dialog = QDialog(self)
+                preview_dialog.setWindowTitle(_("Podgląd SMS"))
+                preview_dialog.setMinimumSize(400, 250)
+                
+                layout = QVBoxLayout(preview_dialog)
+                
+                # Dodaj etykietę z informacjami
+                info_label = QLabel(_("SMS zostanie wysłany na numer: ") + order['phone_number'])
+                layout.addWidget(info_label)
+                
+                # Dodaj pole edycji treści
+                content_edit = QTextEdit(message)
+                layout.addWidget(content_edit)
+                
+                # Dodaj licznik znaków
+                char_counter = QLabel(f"0/160 znaków (1 SMS)")
+                char_counter.setAlignment(Qt.AlignRight)
+                layout.addWidget(char_counter)
+                
+                # Aktualizacja licznika znaków
+                def update_char_counter():
+                    text = content_edit.toPlainText()
+                    count = len(text)
+                    sms_count = (count + 159) // 160  # Zaokrąglenie w górę
+                    
+                    char_counter.setText(f"{count}/160 znaków ({sms_count} SMS)")
+                    
+                    # Zmień kolor, jeśli przekroczono limit jednego SMS-a
+                    if count > 160:
+                        char_counter.setStyleSheet("color: orange;")
+                    elif count > 300:  # Ponad 2 SMS-y
+                        char_counter.setStyleSheet("color: red;")
+                    else:
+                        char_counter.setStyleSheet("")
+                
+                content_edit.textChanged.connect(update_char_counter)
+                update_char_counter()  # Inicjalne wywołanie
+                
+                # Przyciski
+                buttons = QDialogButtonBox(
+                    QDialogButtonBox.Ok | QDialogButtonBox.Cancel,
+                    Qt.Horizontal, 
+                    preview_dialog
+                )
+                buttons.accepted.connect(preview_dialog.accept)
+                buttons.rejected.connect(preview_dialog.reject)
+                layout.addWidget(buttons)
+                
+                # Wyświetl dialog podglądu
+                if preview_dialog.exec() == QDialog.Accepted:
+                    # Wyślij SMS
+                    try:
+                        from utils.sms_sender import SMSSender
+                        
+                        # Aktualizuj treść (jeśli została zmieniona)
+                        message = content_edit.toPlainText()
+                        
+                        # Utwórz obiekt i wyślij SMS
+                        sms_sender = SMSSender(api_key, sender)
+                        success, result_message = sms_sender.send_sms(formatted_phone, message)
+                        
+                        # Zapisz log wysłanego SMS-a
+                        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS order_sms_logs (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                order_id INTEGER,
+                                phone_number TEXT,
+                                content TEXT,
+                                sent_date TEXT,
+                                status TEXT,
+                                FOREIGN KEY (order_id) REFERENCES orders (id)
+                            )
+                        """)
+                        
+                        current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        
+                        if success:
+                            cursor.execute(
+                                "INSERT INTO order_sms_logs (order_id, phone_number, content, sent_date, status) VALUES (?, ?, ?, ?, ?)",
+                                (order_id, formatted_phone, message, current_date, "Wysłany")
+                            )
+                            self.conn.commit()
+                            
+                            NotificationManager.get_instance().show_notification(
+                                f"📱 {_('SMS wysłany pomyślnie do')}: {order['client_name']}",
+                                NotificationTypes.SUCCESS
+                            )
+                        else:
+                            cursor.execute(
+                                "INSERT INTO order_sms_logs (order_id, phone_number, content, sent_date, status) VALUES (?, ?, ?, ?, ?)",
+                                (order_id, formatted_phone, message, current_date, f"Błąd: {result_message}")
+                            )
+                            self.conn.commit()
+                            
+                            raise Exception(result_message)
+                        
+                    except Exception as e:
+                        logger.error(f"Błąd podczas wysyłania SMS: {e}")
+                        QMessageBox.critical(
+                            self,
+                            _("Błąd wysyłania"),
+                            _("Nie udało się wysłać wiadomości SMS:\n\n") + str(e)
+                        )
+                
+            except Exception as e:
+                logger.error(f"Błąd podczas przygotowania SMS: {e}")
+                QMessageBox.critical(
+                    self,
+                    _("Błąd"),
+                    _("Wystąpił błąd podczas przygotowania wiadomości SMS:\n\n") + str(e)
+                )
+        
+        except Exception as e:
+            logger.error(f"Błąd podczas wysyłania SMS: {e}")
+            NotificationManager.get_instance().show_notification(
+                f"Błąd wysyłania SMS: {e}",
+                NotificationTypes.ERROR
+            )
+
+    def select_all_items(self, list_widget, checked=True):
+        """Zaznacza lub odznacza wszystkie elementy na liście."""
+        for i in range(list_widget.count()):
+            item = list_widget.item(i)
+            if checked:
+                item.setCheckState(Qt.Checked)
+            else:
+                item.setCheckState(Qt.Unchecked)
+
+    def preview_mass_email(self, subject, body_html):
+        """Wyświetla podgląd emaila w nowym oknie."""
+        preview_dialog = QDialog(self)
+        preview_dialog.setWindowTitle(_("Podgląd wiadomości email"))
+        preview_dialog.setMinimumSize(700, 500)
+        
+        layout = QVBoxLayout(preview_dialog)
+        
+        # Temat
+        subject_layout = QHBoxLayout()
+        subject_layout.addWidget(QLabel(_("Temat:")))
+        subject_label = QLabel(subject)
+        subject_label.setStyleSheet("font-weight: bold;")
+        subject_layout.addWidget(subject_label)
+        layout.addLayout(subject_layout)
+        
+        # Treść
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        preview = QWebEngineView()
+        preview.setHtml(body_html)
+        layout.addWidget(preview)
+        
+        # Przycisk zamknięcia
+        close_btn = QPushButton(_("Zamknij"))
+        close_btn.clicked.connect(preview_dialog.accept)
+        layout.addWidget(close_btn)
+        
+        preview_dialog.exec()
+
+    def send_email_notifications(self):
+        """Wysyła powiadomienia email do klientów z zamówieniami."""
+        try:
+            # Sprawdź czy funkcja email jest skonfigurowana
+            settings = QSettings("TireDepositManager", "Settings")
+            email_address = settings.value("email_address", "")
+            email_password = settings.value("email_password", "")
+            smtp_server = settings.value("smtp_server", "")
+            smtp_port = settings.value("smtp_port", 587, type=int)
+            
+            if not all([email_address, email_password, smtp_server, smtp_port]):
+                QMessageBox.warning(
+                    self,
+                    _("Brak konfiguracji email"),
+                    _("Konfiguracja email nie jest kompletna. Uzupełnij ustawienia w zakładce Ustawienia → Komunikacja.")
+                )
+                return
+            
+            # Pobierz listę zamówień z emailami klientów
+            cursor = self.conn.cursor()
+            
+            # Buduj zapytanie w zależności od aktualnych filtrów
+            query = """
+            SELECT 
+                o.id,
+                c.name AS client_name,
+                c.email,
+                o.status,
+                o.order_date,
+                o.total_amount
+            FROM 
+                orders o
+            JOIN 
+                clients c ON o.client_id = c.id
+            WHERE 
+                c.email IS NOT NULL AND c.email != ''
+            """
+            
+            params = []
+            
+            # Dodaj filtr statusu jeśli potrzeba
+            if self.filtered_status != _("Wszystkie"):
+                query += " AND o.status = ?"
+                params.append(self.filtered_status)
+            
+            # Dodaj filtry tekstowe jeśli istnieją
+            if self.filter_text:
+                filter_text = f"%{self.filter_text}%"
+                query += " AND (c.name LIKE ? OR o.id LIKE ?)"
+                params.extend([filter_text, filter_text])
+            
+            # Wykonaj zapytanie
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+                
+            orders = cursor.fetchall()
+            
+            # Jeśli nie ma zamówień z emailami klientów
+            if not orders:
+                QMessageBox.information(
+                    self,
+                    _("Brak zamówień"),
+                    _("Nie znaleziono zamówień z przypisanymi adresami email.")
+                )
+                return
+            
+            # Dialog konfiguracji masowej wysyłki email
+            from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QTextEdit, QPushButton, QCheckBox, QListWidget, QListWidgetItem, QApplication
+            
+            config_dialog = QDialog(self)
+            config_dialog.setWindowTitle(_("Wysyłanie powiadomień email"))
+            config_dialog.setMinimumSize(700, 600)
+            
+            layout = QVBoxLayout(config_dialog)
+            
+            # Wybór szablonu
+            template_layout = QHBoxLayout()
+            template_layout.addWidget(QLabel(_("Wybierz szablon email:")))
+            
+            template_combo = QComboBox()
+            template_combo.addItems([_("Nowe zamówienie"), _("Zamówienie w realizacji"), _("Zamówienie zakończone")])
+            
+            # Ustaw domyślny szablon w zależności od statusu
+            default_template = _("Nowe zamówienie")
+            if self.filtered_status == _("W realizacji"):
+                default_template = _("Zamówienie w realizacji")
+            elif self.filtered_status == _("Zakończone"):
+                default_template = _("Zamówienie zakończone")
+                
+            index = template_combo.findText(default_template)
+            if index >= 0:
+                template_combo.setCurrentIndex(index)
+            template_layout.addWidget(template_combo, 1)
+            
+            layout.addLayout(template_layout)
+            
+            # Temat wiadomości
+            subject_layout = QHBoxLayout()
+            subject_layout.addWidget(QLabel(_("Temat:")))
+            subject_edit = QLineEdit()
+            subject_layout.addWidget(subject_edit)
+            layout.addLayout(subject_layout)
+            
+            # Podgląd treści
+            content_label = QLabel(_("Podgląd treści:"))
+            layout.addWidget(content_label)
+            
+            from PySide6.QtWebEngineWidgets import QWebEngineView
+            email_preview = QWebEngineView()
+            email_preview.setMinimumHeight(200)
+            layout.addWidget(email_preview)
+            
+            # Lista zamówień do wysłania
+            orders_label = QLabel(f"{_('Znaleziono')} {len(orders)} {_('zamówień z adresami email:')}")
+            layout.addWidget(orders_label)
+            
+            orders_list = QListWidget()
+            orders_list.setSelectionMode(QListWidget.ExtendedSelection)
+            layout.addWidget(orders_list)
+            
+            # Wypełnij listę zamówień
+            for order in orders:
+                order_id = order['id']
+                status = order['status']
+                order_date = datetime.strptime(order['order_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+                
+                item = QListWidgetItem(f"{order_id} - {order['client_name']} - {order['email']} - {status} - {order_date}")
+                item.setData(Qt.UserRole, order_id)
+                orders_list.addItem(item)
+                item.setCheckState(Qt.Checked)  # Domyślnie zaznaczone
+            
+                    # Opcje
+            options_layout = QHBoxLayout()
+            
+            select_all_btn = QPushButton(_("Zaznacz wszystkie"))
+            select_all_btn.clicked.connect(lambda: self.select_all_items(orders_list, True))
+            options_layout.addWidget(select_all_btn)
+            
+            deselect_all_btn = QPushButton(_("Odznacz wszystkie"))
+            deselect_all_btn.clicked.connect(lambda: self.select_all_items(orders_list, False))
+            options_layout.addWidget(deselect_all_btn)
+            
+            options_layout.addStretch()
+            
+            layout.addLayout(options_layout)
+            
+            # Funkcja aktualizacji szablonu przy zmianie wyboru
+            def update_template():
+                # Mapowanie z UI na klucze szablonów
+                template_map = {
+                    _("Nowe zamówienie"): "order_nowe",
+                    _("Zamówienie w realizacji"): "order_w_realizacji",
+                    _("Zamówienie zakończone"): "order_zakończone",
+                }
+                
+                template_name = template_combo.currentText()
+                template_key = template_map.get(template_name, "order_nowe")
+                
+                # Pobierz szablon
+                import json
+                import os
+                from utils.paths import CONFIG_DIR
+                
+                templates_file = os.path.join(CONFIG_DIR, "templates.json")
+                
+                if os.path.exists(templates_file):
+                    with open(templates_file, 'r', encoding='utf-8') as f:
+                        templates = json.load(f)
+                        
+                    if "email" in templates and template_key in templates["email"]:
+                        template = templates["email"][template_key]
+                        subject = template.get("subject", "")
+                        body = template.get("body", "")
+                        
+                        # Ustaw temat
+                        subject_edit.setText(subject)
+                        
+                        # Pokaż podgląd z przykładowymi danymi
+                        company_name = settings.value("company_name", "")
+                        company_address = settings.value("company_address", "")
+                        company_phone = settings.value("company_phone", "")
+                        company_email = settings.value("company_email", "")
+                        company_website = settings.value("company_website", "")
+                        
+                        # Przykładowe dane zamówienia
+                        example_order_id = "123"
+                        example_date = datetime.now().strftime("%d-%m-%Y")
+                        example_items_table = """
+                        <table style="width:100%; border-collapse: collapse;">
+                            <tr style="background-color:#f8f9fa;">
+                                <th style="padding:8px; border:1px solid #ddd; text-align:left;">Nazwa</th>
+                                <th style="padding:8px; border:1px solid #ddd; text-align:center;">Ilość</th>
+                                <th style="padding:8px; border:1px solid #ddd; text-align:right;">Cena</th>
+                            </tr>
+                            <tr>
+                                <td style="padding:8px; border:1px solid #ddd;">Przykładowy produkt</td>
+                                <td style="padding:8px; border:1px solid #ddd; text-align:center;">2</td>
+                                <td style="padding:8px; border:1px solid #ddd; text-align:right;">150.00 zł</td>
+                            </tr>
+                        </table>
+                        """
+                        
+                        # Zastąp zmienne w szablonie
+                        example_data = {
+                            "order_id": example_order_id,
+                            "client_name": "Jan Kowalski",
+                            "client_email": "jan.kowalski@example.com",
+                            "order_date": example_date,
+                            "status": template_name,
+                            "total_amount": "300.00 zł",
+                            "items_table": example_items_table,
+                            "notes": "Przykładowa uwaga",
+                            "company_name": company_name,
+                            "company_address": company_address,
+                            "company_phone": company_phone,
+                            "company_email": company_email,
+                            "company_website": company_website
+                        }
+                        
+                        for key, value in example_data.items():
+                            body = body.replace("{" + key + "}", str(value))
+                        
+                        # Wyświetl podgląd
+                        email_preview.setHtml(body)
+            
+            template_combo.currentIndexChanged.connect(update_template)
+            update_template()  # Załaduj początkowy szablon
+            
+            # Przyciski
+            buttons_layout = QHBoxLayout()
+            
+            cancel_btn = QPushButton(_("Anuluj"))
+            cancel_btn.clicked.connect(config_dialog.reject)
+            buttons_layout.addWidget(cancel_btn)
+            
+            buttons_layout.addStretch()
+            
+            preview_btn = QPushButton(_("Podgląd"))
+            preview_btn.clicked.connect(lambda: self.preview_mass_email(subject_edit.text(), email_preview.page().toHtml()))
+            buttons_layout.addWidget(preview_btn)
+            
+            send_btn = QPushButton(_("Wyślij powiadomienia"))
+            send_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #28a745;
+                    color: white;
+                    font-weight: bold;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #218838;
+                }
+            """)
+            
+            # Funkcja wysyłania emaili
+            def send_mass_email():
+                selected_items = []
+                
+                # Zbierz zaznaczone zamówienia
+                for i in range(orders_list.count()):
+                    item = orders_list.item(i)
+                    if item.checkState() == Qt.Checked:
+                        order_id = item.data(Qt.UserRole)
+                        selected_items.append(order_id)
+                
+                if not selected_items:
+                    QMessageBox.warning(
+                        self,
+                        _("Brak zaznaczonych zamówień"),
+                        _("Zaznacz przynajmniej jedno zamówienie do wysłania powiadomienia.")
+                    )
+                    return
+                    
+                # Potwierdź wysyłkę
+                reply = QMessageBox.question(
+                    self,
+                    _("Potwierdź wysyłkę"),
+                    f"{_('Czy na pewno chcesz wysłać')} {len(selected_items)} {_('powiadomień email?')}",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                
+                if reply != QMessageBox.Yes:
+                    return
+                    
+                # Zamknij dialog konfiguracji
+                config_dialog.accept()
+                
+                # Pobierz dane dla emaili
+                subject = subject_edit.text()
+                
+                # Mapowanie z UI na klucze szablonów
+                template_map = {
+                    _("Nowe zamówienie"): "order_nowe",
+                    _("Zamówienie w realizacji"): "order_w_realizacji",
+                    _("Zamówienie zakończone"): "order_zakończone",
+                }
+                
+                template_name = template_combo.currentText()
+                template_key = template_map.get(template_name, "order_nowe")
+                
+                # Pobierz szablon
+                import json
+                import os
+                from utils.paths import CONFIG_DIR
+                
+                templates_file = os.path.join(CONFIG_DIR, "templates.json")
+                
+                if os.path.exists(templates_file):
+                    with open(templates_file, 'r', encoding='utf-8') as f:
+                        templates = json.load(f)
+                    
+                    if "email" not in templates or template_key not in templates["email"]:
+                        QMessageBox.warning(
+                            self,
+                            _("Brak szablonu"),
+                            _("Nie znaleziono odpowiedniego szablonu email. Sprawdź ustawienia szablonów.")
+                        )
+                        return
+                        
+                    template = templates["email"][template_key]
+                    template_body = template.get("body", "")
+                    
+                    # Konfiguracja SMTP
+                    import smtplib
+                    from email.mime.text import MIMEText
+                    from email.mime.multipart import MIMEMultipart
+                    
+                    # Pobierz dane firmy
+                    company_name = settings.value("company_name", "")
+                    company_address = settings.value("company_address", "")
+                    company_phone = settings.value("company_phone", "")
+                    company_email = settings.value("company_email", "")
+                    company_website = settings.value("company_website", "")
+                    
+                    # Pokaż dialog postępu
+                    progress_dialog = QDialog(self)
+                    progress_dialog.setWindowTitle(_("Wysyłanie emaili"))
+                    progress_dialog.setMinimumWidth(400)
+                    
+                    progress_layout = QVBoxLayout(progress_dialog)
+                    progress_layout.addWidget(QLabel(f"{_('Wysyłanie')} {len(selected_items)} {_('powiadomień email...')}"))
+                    
+                    progress_label = QLabel(_("Przygotowywanie..."))
+                    progress_layout.addWidget(progress_label)
+                    
+                    progress_btn = QPushButton(_("Anuluj"))
+                    progress_btn.clicked.connect(progress_dialog.reject)
+                    progress_layout.addWidget(progress_btn)
+                    
+                    progress_dialog.show()
+                    
+                    # Liczniki
+                    success_count = 0
+                    fail_count = 0
+                    
+                    # Połącz z serwerem SMTP
+                    try:
+                        if settings.value("use_ssl", True, type=bool):
+                            server = smtplib.SMTP_SSL(smtp_server, smtp_port)
+                        else:
+                            server = smtplib.SMTP(smtp_server, smtp_port)
+                            server.starttls()
+                        
+                        # Logowanie
+                        server.login(email_address, email_password)
+                        
+                        # Pętla wysyłania
+                        for i, order_id in enumerate(selected_items):
+                            try:
+                                # Pobierz dane zamówienia
+                                cursor.execute("""
+                                    SELECT o.id, o.order_date, o.status, o.total_amount, o.notes,
+                                        c.name as client_name, c.email
+                                    FROM orders o
+                                    JOIN clients c ON o.client_id = c.id
+                                    WHERE o.id = ?
+                                """, (order_id,))
+                                
+                                order = cursor.fetchone()
+                                
+                                if not order or not order['email']:
+                                    continue
+                                    
+                                # Aktualizacja etykiety postępu
+                                progress_label.setText(f"{_('Wysyłanie')} ({i+1}/{len(selected_items)}): {order['client_name']}")
+                                QApplication.processEvents()  # Odśwież UI
+                                
+                                if progress_dialog.result() == QDialog.Rejected:
+                                    break  # Anulowano
+                                
+                                # Pobierz pozycje zamówienia
+                                cursor.execute("""
+                                    SELECT name, quantity, price
+                                    FROM order_items
+                                    WHERE order_id = ?
+                                """, (order_id,))
+                                
+                                items = cursor.fetchall()
+                                
+                                # Przygotuj tabelę z pozycjami zamówienia
+                                items_table = """
+                                <table style="width:100%; border-collapse: collapse;">
+                                    <tr style="background-color:#f8f9fa;">
+                                        <th style="padding:8px; border:1px solid #ddd; text-align:left;">Nazwa</th>
+                                        <th style="padding:8px; border:1px solid #ddd; text-align:center;">Ilość</th>
+                                        <th style="padding:8px; border:1px solid #ddd; text-align:right;">Cena</th>
+                                    </tr>
+                                """
+                                
+                                for item in items:
+                                    items_table += f"""
+                                    <tr>
+                                        <td style="padding:8px; border:1px solid #ddd;">{item['name']}</td>
+                                        <td style="padding:8px; border:1px solid #ddd; text-align:center;">{item['quantity']}</td>
+                                        <td style="padding:8px; border:1px solid #ddd; text-align:right;">{item['price']:.2f} zł</td>
+                                    </tr>
+                                    """
+                                
+                                items_table += "</table>"
+                                
+                                # Formatowanie daty
+                                order_date = datetime.strptime(order['order_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+                                
+                                # Dane do szablonu
+                                template_data = {
+                                    "order_id": order_id,
+                                    "client_name": order['client_name'],
+                                    "client_email": order['email'],
+                                    "order_date": order_date,
+                                    "status": order['status'],
+                                    "total_amount": f"{order['total_amount']:.2f} zł",
+                                    "items_table": items_table,
+                                    "notes": order['notes'] or "",
+                                    "company_name": company_name,
+                                    "company_address": company_address,
+                                    "company_phone": company_phone,
+                                    "company_email": company_email,
+                                    "company_website": company_website
+                                }
+                                
+                                # Wypełnij szablon danymi
+                                body = template_body
+                                this_subject = subject
+                                
+                                for key, value in template_data.items():
+                                    body = body.replace("{" + key + "}", str(value))
+                                    this_subject = this_subject.replace("{" + key + "}", str(value))
+                                
+                                # Przygotuj wiadomość
+                                msg = MIMEMultipart()
+                                msg['From'] = email_address
+                                msg['To'] = order['email']
+                                msg['Subject'] = this_subject
+                                
+                                msg.attach(MIMEText(body, 'html'))
+                                
+                                # Wysyłka wiadomości
+                                server.send_message(msg)
+                                
+                                # Zapisz log wysłanego emaila
+                                cursor.execute("""
+                                    CREATE TABLE IF NOT EXISTS order_email_logs (
+                                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                        order_id INTEGER,
+                                        email TEXT,
+                                        subject TEXT,
+                                        sent_date TEXT,
+                                        status TEXT,
+                                        FOREIGN KEY (order_id) REFERENCES orders (id)
+                                    )
+                                """)
+                                
+                                current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                cursor.execute(
+                                    "INSERT INTO order_email_logs (order_id, email, subject, sent_date, status) VALUES (?, ?, ?, ?, ?)",
+                                    (order_id, order['email'], this_subject, current_date, "Wysłany")
+                                )
+                                self.conn.commit()
+                                
+                                success_count += 1
+                                
+                            except Exception as e:
+                                logger.error(f"Błąd podczas wysyłania emaila do {order.get('client_name', '')}: {e}")
+                                fail_count += 1
+                                
+                                # Zapisz log błędu
+                                try:
+                                    current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                                    cursor.execute(
+                                        "INSERT INTO order_email_logs (order_id, email, subject, sent_date, status) VALUES (?, ?, ?, ?, ?)",
+                                        (order_id, order.get('email', ''), subject, current_date, f"Błąd: {e}")
+                                    )
+                                    self.conn.commit()
+                                except:
+                                    pass
+                        
+                        # Zamknij połączenie SMTP
+                        server.quit()
+                        
+                    except Exception as e:
+                        logger.error(f"Błąd podczas konfiguracji SMTP: {e}")
+                        QMessageBox.critical(
+                            self,
+                            _("Błąd połączenia"),
+                            _("Nie udało się nawiązać połączenia z serwerem SMTP:\n\n") + str(e)
+                        )
+                        progress_dialog.accept()
+                        return
+                    
+                    # Zamknij dialog postępu
+                    progress_dialog.accept()
+                    
+                    # Pokaż podsumowanie
+                    QMessageBox.information(
+                        self,
+                        _("Podsumowanie wysyłki email"),
+                        f"{_('Wysłano')}: {success_count} {_('powiadomień')}\n"
+                        f"{_('Nieudane')}: {fail_count} {_('powiadomień')}\n\n"
+                        f"{_('Szczegóły można znaleźć w logach systemu.')}"
+                    )
+                    
+                    # Odśwież widok
+                    self.load_orders()
+                    
+        except Exception as e:
+            logger.error(f"Błąd podczas wysyłania powiadomień email: {e}")
+            NotificationManager.get_instance().show_notification(
+                f"Błąd podczas wysyłania powiadomień email: {e}",
+                NotificationTypes.ERROR
+            )
+
+    def send_sms_notifications(self):
+        """Wysyła powiadomienia SMS do klientów z zamówieniami."""
+        try:
+            # Sprawdź czy funkcja SMS jest skonfigurowana
+            settings = QSettings("TireDepositManager", "Settings")
+            api_key = settings.value("sms_api_key", "")
+            sender = settings.value("sms_sender", "")
+            enable_sms = settings.value("enable_sms", False, type=bool)
+            
+            if not all([api_key, sender]) or not enable_sms:
+                QMessageBox.warning(
+                    self,
+                    _("Brak konfiguracji SMS"),
+                    _("Konfiguracja SMS nie jest kompletna lub wysyłanie SMS jest wyłączone. Sprawdź ustawienia w zakładce Ustawienia → Komunikacja.")
+                )
+                return
+            
+            # Pobierz listę zamówień z numerami telefonów klientów
+            cursor = self.conn.cursor()
+            
+            # Buduj zapytanie w zależności od aktualnych filtrów
+            query = """
+            SELECT 
+                o.id,
+                c.name AS client_name,
+                c.phone_number,
+                o.status,
+                o.order_date,
+                o.total_amount
+            FROM 
+                orders o
+            JOIN 
+                clients c ON o.client_id = c.id
+            WHERE 
+                c.phone_number IS NOT NULL AND c.phone_number != ''
+            """
+            
+            params = []
+            
+            # Dodaj filtr statusu jeśli potrzeba
+            if self.filtered_status != _("Wszystkie"):
+                query += " AND o.status = ?"
+                params.append(self.filtered_status)
+            
+            # Dodaj filtry tekstowe jeśli istnieją
+            if self.filter_text:
+                filter_text = f"%{self.filter_text}%"
+                query += " AND (c.name LIKE ? OR o.id LIKE ?)"
+                params.extend([filter_text, filter_text])
+            
+            # Wykonaj zapytanie
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+                
+            orders = cursor.fetchall()
+            
+            # Jeśli nie ma zamówień z numerami telefonów
+            if not orders:
+                QMessageBox.information(
+                    self,
+                    _("Brak zamówień"),
+                    _("Nie znaleziono zamówień z przypisanymi numerami telefonów.")
+                )
+                return
+            
+            # Dialog konfiguracji masowej wysyłki SMS
+            from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QTextEdit, QPushButton, QCheckBox, QListWidget, QListWidgetItem, QApplication
+            
+            config_dialog = QDialog(self)
+            config_dialog.setWindowTitle(_("Wysyłanie powiadomień SMS"))
+            config_dialog.setMinimumSize(600, 500)
+            
+            layout = QVBoxLayout(config_dialog)
+            
+            # Wybór szablonu
+            template_layout = QHBoxLayout()
+            template_layout.addWidget(QLabel(_("Wybierz szablon SMS:")))
+            
+            template_combo = QComboBox()
+            template_combo.addItems([_("Nowe zamówienie"), _("Zamówienie w realizacji"), _("Zamówienie zakończone")])
+            
+            # Ustaw domyślny szablon w zależności od statusu
+            default_template = _("Nowe zamówienie")
+            if self.filtered_status == _("W realizacji"):
+                default_template = _("Zamówienie w realizacji")
+            elif self.filtered_status == _("Zakończone"):
+                default_template = _("Zamówienie zakończone")
+                
+            index = template_combo.findText(default_template)
+            if index >= 0:
+                template_combo.setCurrentIndex(index)
+            template_layout.addWidget(template_combo, 1)
+            
+            layout.addLayout(template_layout)
+            
+            # Treść wiadomości
+            content_label = QLabel(_("Treść wiadomości:"))
+            layout.addWidget(content_label)
+            
+            message_edit = QTextEdit()
+            message_edit.setMinimumHeight(100)
+            layout.addWidget(message_edit)
+            
+            # Licznik znaków
+            char_counter = QLabel("0/160 znaków (1 SMS)")
+            char_counter.setAlignment(Qt.AlignRight)
+            layout.addWidget(char_counter)
+            
+            # Aktualizacja licznika znaków
+            def update_counter():
+                text = message_edit.toPlainText()
+                count = len(text)
+                sms_count = (count + 159) // 160  # Zaokrąglenie w górę
+                
+                if count > 160:
+                    char_counter.setStyleSheet("color: orange;")
+                elif count > 300:
+                    char_counter.setStyleSheet("color: red;")
+                else:
+                    char_counter.setStyleSheet("")
+                    
+                char_counter.setText(f"{count}/160 znaków ({sms_count} SMS)")
+            
+            message_edit.textChanged.connect(update_counter)
+            
+            # Aktualizacja szablonu przy zmianie wyboru
+            def update_template():
+                template_name = ""
+                if template_combo.currentText() == _("Nowe zamówienie"):
+                    template_name = "Nowe zamówienie"
+                elif template_combo.currentText() == _("Zamówienie w realizacji"):
+                    template_name = "Zamówienie w realizacji"
+                elif template_combo.currentText() == _("Zamówienie zakończone"):
+                    template_name = "Zamówienie zakończone"
+                
+                # Pobierz szablon SMS
+                import json
+                import os
+                from utils.paths import CONFIG_DIR
+                
+                templates_file = os.path.join(CONFIG_DIR, "templates.json")
+                
+                # Domyślne szablony, jeśli nie ma zapisanych
+                default_templates = {
+                    "Nowe zamówienie": "Dziekujemy za zlozenie zamowienia {order_id}. Kwota: {amount} zl. O zmianach statusu bedziemy informowac. {company_name}",
+                    "Zamówienie w realizacji": "Zamowienie {order_id} jest w realizacji. W razie pytan prosimy o kontakt: {company_phone}. {company_name}",
+                    "Zamówienie zakończone": "Zamowienie {order_id} zostalo zrealizowane. Zapraszamy do odbioru. Dziekujemy za wspolprace! {company_name}"
+                }
+                
+                if os.path.exists(templates_file):
+                    with open(templates_file, 'r', encoding='utf-8') as f:
+                        templates = json.load(f)
+                    
+                    # Sprawdź czy szablon istnieje
+                    if "sms_order" in templates and template_name in templates["sms_order"]:
+                        template_content = templates["sms_order"][template_name]
+                    else:
+                        template_content = default_templates.get(template_name, "")
+                else:
+                    template_content = default_templates.get(template_name, "")
+                
+                # Ustaw treść
+                message_edit.setPlainText(template_content)
+                update_counter()
+                
+            template_combo.currentIndexChanged.connect(update_template)
+            update_template()  # Załaduj początkowy szablon
+            
+            # Lista zamówień do wysłania
+            orders_label = QLabel(f"{_('Znaleziono')} {len(orders)} {_('zamówień z numerami telefonów:')}")
+            layout.addWidget(orders_label)
+            
+            orders_list = QListWidget()
+            orders_list.setSelectionMode(QListWidget.ExtendedSelection)
+            layout.addWidget(orders_list)
+            
+            # Wypełnij listę zamówień
+            for order in orders:
+                order_id = order['id']
+                status = order['status']
+                order_date = datetime.strptime(order['order_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+                
+                item = QListWidgetItem(f"{order_id} - {order['client_name']} - {order['phone_number']} - {status} - {order_date}")
+                item.setData(Qt.UserRole, order_id)
+                orders_list.addItem(item)
+                item.setCheckState(Qt.Checked)  # Domyślnie zaznaczone
+            
+            # Opcje
+            options_layout = QHBoxLayout()
+            
+            select_all_btn = QPushButton(_("Zaznacz wszystkie"))
+            select_all_btn.clicked.connect(lambda: self.select_all_items(orders_list, True))
+            options_layout.addWidget(select_all_btn)
+            
+            deselect_all_btn = QPushButton(_("Odznacz wszystkie"))
+            deselect_all_btn.clicked.connect(lambda: self.select_all_items(orders_list, False))
+            options_layout.addWidget(deselect_all_btn)
+            
+            options_layout.addStretch()
+            
+            layout.addLayout(options_layout)
+            
+            # Przyciski
+            buttons_layout = QHBoxLayout()
+            
+            cancel_btn = QPushButton(_("Anuluj"))
+            cancel_btn.clicked.connect(config_dialog.reject)
+            buttons_layout.addWidget(cancel_btn)
+            
+            buttons_layout.addStretch()
+            
+            preview_btn = QPushButton(_("Podgląd"))
+            preview_btn.clicked.connect(lambda: self.preview_mass_sms(message_edit.toPlainText(), orders[0] if orders else None))
+            buttons_layout.addWidget(preview_btn)
+            
+            send_btn = QPushButton(_("Wyślij powiadomienia"))
+            send_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #28a745;
+                    color: white;
+                    font-weight: bold;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #218838;
+                }
+            """)
+            
+            # Funkcja wysyłania SMS-ów
+            def send_mass_sms():
+                selected_items = []
+                
+                # Zbierz zaznaczone zamówienia
+                for i in range(orders_list.count()):
+                    item = orders_list.item(i)
+                    if item.checkState() == Qt.Checked:
+                        order_id = item.data(Qt.UserRole)
+                        for order in orders:
+                            if order['id'] == order_id:
+                                selected_items.append(order)
+                                break
+                
+                if not selected_items:
+                    QMessageBox.warning(
+                        self,
+                        _("Brak zaznaczonych zamówień"),
+                        _("Zaznacz przynajmniej jedno zamówienie do wysłania powiadomienia.")
+                    )
+                    return
+                    
+                # Potwierdź wysyłkę
+                reply = QMessageBox.question(
+                    self,
+                    _("Potwierdź wysyłkę"),
+                    f"{_('Czy na pewno chcesz wysłać')} {len(selected_items)} {_('powiadomień SMS?')}",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                
+                if reply != QMessageBox.Yes:
+                    return
+                    
+                # Zamknij dialog konfiguracji
+                config_dialog.accept()
+                
+                # Inicjalizuj SMSSender
+                from utils.sms_sender import SMSSender, format_phone_number
+                sms_sender_obj = SMSSender(api_key, sender)
+                
+                # Pobierz dane firmy
+                company_name = settings.value("company_name", "")
+                company_address = settings.value("company_address", "")
+                company_phone = settings.value("company_phone", "")
+                
+                # Liczniki
+                success_count = 0
+                fail_count = 0
+                
+                # Pokaż dialog postępu
+                progress_dialog = QDialog(self)
+                progress_dialog.setWindowTitle(_("Wysyłanie SMS-ów"))
+                progress_dialog.setMinimumWidth(400)
+                
+                progress_layout = QVBoxLayout(progress_dialog)
+                progress_layout.addWidget(QLabel(f"{_('Wysyłanie')} {len(selected_items)} {_('powiadomień SMS...')}"))
+                
+                progress_label = QLabel(_("Przygotowywanie..."))
+                progress_layout.addWidget(progress_label)
+                
+                progress_btn = QPushButton(_("Anuluj"))
+                progress_btn.clicked.connect(progress_dialog.reject)
+                progress_layout.addWidget(progress_btn)
+                
+                progress_dialog.show()
+                
+                # Pętla wysyłania
+                for i, order in enumerate(selected_items):
+                    try:
+                        # Aktualizacja etykiety postępu
+                        progress_label.setText(f"{_('Wysyłanie')} ({i+1}/{len(selected_items)}): {order['client_name']}")
+                        QApplication.processEvents()  # Odśwież UI
+                        
+                        if progress_dialog.result() == QDialog.Rejected:
+                            break  # Anulowano
+                        
+                        # Formatowanie daty
+                        order_date = datetime.strptime(order['order_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+                        
+                        # Dane do szablonu
+                        template_data = {
+                            "order_id": str(order['id']),
+                            "client_name": order['client_name'],
+                            "date": order_date,
+                            "status": order['status'],
+                            "amount": f"{order['total_amount']:.2f}",
+                            "company_name": company_name,
+                            "company_phone": company_phone
+                        }
+                        
+                        # Wypełnij szablon danymi
+                        message_content = message_edit.toPlainText()
+                        for key, value in template_data.items():
+                            message_content = message_content.replace("{" + key + "}", str(value))
+                        
+                        # Wyślij SMS
+                        formatted_phone = format_phone_number(order['phone_number'])
+                        success, result_message = sms_sender_obj.send_sms(formatted_phone, message_content)
+                        
+                        # Zapisz log
+                        cursor = self.conn.cursor()
+                        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS order_sms_logs (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                order_id INTEGER,
+                                phone_number TEXT,
+                                content TEXT,
+                                sent_date TEXT,
+                                status TEXT,
+                                FOREIGN KEY (order_id) REFERENCES orders (id)
+                            )
+                        """)
+                        
+                        current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        
+                        if success:
+                            success_count += 1
+                            status = "Wysłany"
+                        else:
+                            fail_count += 1
+                            status = f"Błąd: {result_message}"
+                        
+                        cursor.execute(
+                            "INSERT INTO order_sms_logs (order_id, phone_number, content, sent_date, status) VALUES (?, ?, ?, ?, ?)",
+                            (order['id'], formatted_phone, message_content, current_date, status)
+                        )
+                        self.conn.commit()
+                        
+                    except Exception as e:
+                        logger.error(f"Błąd podczas wysyłania SMS: {e}")
+                        fail_count += 1
+                
+                # Zamknij dialog postępu
+                progress_dialog.accept()
+                
+                # Pokaż podsumowanie
+                QMessageBox.information(
+                    self,
+                    _("Podsumowanie wysyłki SMS"),
+                    f"{_('Wysłano')}: {success_count} {_('powiadomień')}\n"
+                    f"{_('Nieudane')}: {fail_count} {_('powiadomień')}\n\n"
+                    f"{_('Szczegóły można znaleźć w logach systemu.')}"
+                )
+                
+                # Odśwież widok
+                self.load_orders()
+            
+            send_btn.clicked.connect(send_mass_sms)
+            buttons_layout.addWidget(send_btn)
+            
+            layout.addLayout(buttons_layout)
+            
+            # Wyświetl dialog
+            config_dialog.exec()
+        
+        except Exception as e:
+            logger.error(f"Błąd podczas wysyłania powiadomień SMS: {e}")
+            NotificationManager.get_instance().show_notification(
+                f"Błąd podczas wysyłania powiadomień SMS: {e}",
+                NotificationTypes.ERROR
+            )
+
+    def preview_mass_sms(self, template, example_order=None):
+        """Wyświetla podgląd SMS-a z podstawieniem danych przykładowego zamówienia."""
+        try:
+            if not example_order:
+                QMessageBox.warning(
+                    self,
+                    _("Brak danych"),
+                    _("Nie można wygenerować podglądu. Brak danych zamówienia.")
+                )
+                return
+            
+            # Pobierz dane firmy z ustawień
+            settings = QSettings("TireDepositManager", "Settings")
+            company_name = settings.value("company_name", "")
+            company_phone = settings.value("company_phone", "")
+            
+            # Formatowanie daty
+            order_date = datetime.strptime(example_order['order_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+            
+            # Dane do szablonu
+            template_data = {
+                "order_id": str(example_order['id']),
+                "client_name": example_order['client_name'],
+                "date": order_date,
+                "status": example_order['status'],
+                "amount": f"{example_order['total_amount']:.2f}",
+                "company_name": company_name,
+                "company_phone": company_phone
+            }
+            
+            # Wypełnij szablon danymi
+            message_content = template
+            for key, value in template_data.items():
+                message_content = message_content.replace("{" + key + "}", str(value))
+            
+            # Wyświetl podgląd
+            QMessageBox.information(
+                self,
+                _("Podgląd SMS-a (przykład)"),
+                f"{_('Dla zamówienia')}: {example_order['id']} - {example_order['client_name']}\n\n"
+                f"{_('Treść')}: {message_content}\n\n"
+                f"{_('Długość')}: {len(message_content)} {_('znaków')}\n"
+                f"{_('SMS-ów')}: {(len(message_content) + 159) // 160}"
+            )
+            
+        except Exception as e:
+            logger.error(f"Błąd podczas generowania podglądu SMS: {e}")
+            NotificationManager.get_instance().show_notification(
+                f"Błąd podczas generowania podglądu SMS: {e}",
+                NotificationTypes.ERROR
+            )
+                    
+            send_btn.clicked.connect(send_mass_email)
+            buttons_layout.addWidget(send_btn)
+            
+            layout.addLayout(buttons_layout)
+            
+            # Wyświetl dialog
+            config_dialog.exec()

@@ -281,43 +281,58 @@ class StatusDelegate(QStyledItemDelegate):
     Delegat do stylizowania komórek statusu w tabeli depozytów.
     """
     def paint(self, painter, option, index):
+        if not index.isValid():
+            return super().paint(painter, option, index)
+            
         status = index.data()
         
-        if status == _("Aktywny"):
-            background_color = QColor("#51cf66")  # Zielony
-            text_color = QColor(255, 255, 255)
-        elif status == _("Do odbioru"):
-            background_color = QColor("#ffa94d")  # Pomarańczowy
-            text_color = QColor(255, 255, 255)
-        elif status == _("Zaległy"):
-            background_color = QColor("#fa5252")  # Czerwony
-            text_color = QColor(255, 255, 255)
-        elif status == _("Rezerwacja"):
-            background_color = QColor("#4dabf7")  # Niebieski
-            text_color = QColor(255, 255, 255)
-        elif status == _("Wydany"):
-            background_color = QColor("#adb5bd")  # Szary
-            text_color = QColor(255, 255, 255)
-        else:
-            # Domyślne kolory
-            background_color = QColor("#2c3034")
-            text_color = QColor(255, 255, 255)
-        
-        # Rysowanie zaokrąglonego prostokąta
+        # Zapisz stan paintera przed rozpoczęciem własnego rysowania
         painter.save()
-        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-        painter.setBrush(background_color)
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(option.rect.adjusted(4, 4, -4, -4), 10, 10)
         
-        # Rysowanie tekstu
-        painter.setPen(text_color)
-        painter.drawText(
-            option.rect, 
-            Qt.AlignCenter, 
-            status
-        )
-        painter.restore()
+        try:
+            # Określenie kolorów w zależności od statusu
+            if status == _("Aktywny"):
+                background_color = QColor("#51cf66")  # Zielony
+                text_color = QColor(255, 255, 255)
+            elif status == _("Do odbioru"):
+                background_color = QColor("#ffa94d")  # Pomarańczowy
+                text_color = QColor(255, 255, 255)
+            elif status == _("Zaległy"):
+                background_color = QColor("#fa5252")  # Czerwony
+                text_color = QColor(255, 255, 255)
+            elif status == _("Rezerwacja"):
+                background_color = QColor("#4dabf7")  # Niebieski
+                text_color = QColor(255, 255, 255)
+            elif status == _("Wydany"):
+                background_color = QColor("#adb5bd")  # Szary
+                text_color = QColor(255, 255, 255)
+            else:
+                # Domyślne kolory
+                background_color = QColor("#2c3034")
+                text_color = QColor(255, 255, 255)
+            
+            # Włącz antyaliasing dla gładszych krawędzi
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+            
+            # Wyczyść tło
+            painter.setBrush(background_color)
+            painter.setPen(Qt.NoPen)
+            
+            # Rysowanie zaokrąglonego prostokąta
+            painter.drawRoundedRect(option.rect.adjusted(4, 4, -4, -4), 10, 10)
+            
+            # Rysowanie tekstu
+            painter.setPen(text_color)
+            painter.drawText(
+                option.rect, 
+                Qt.AlignCenter, 
+                status
+            )
+        except Exception as e:
+            logger.error(f"Błąd podczas rysowania statusu: {e}")
+        finally:
+            # Zawsze przywracaj stan paintera, nawet jeśli wystąpi błąd
+            painter.restore()
 
 
 class ActionButtonDelegate(QStyledItemDelegate):
@@ -328,41 +343,17 @@ class ActionButtonDelegate(QStyledItemDelegate):
         super().__init__(parent)
 
     def paint(self, painter, option, index):
+        if not index.isValid():
+            return super().paint(painter, option, index)
+            
+        # Zapisz stan paintera
         painter.save()
-
-        # Obliczenie szerokości przycisku i odstępów
-        total_width = option.rect.width()
-        button_width = 30
-        spacing = (total_width - button_width) / 2  # Odstęp do wycentrowania
-
-        # Pozycja x dla przycisku
-        x_center = option.rect.left() + spacing
-
-        # Pozycja y (centr pionowy)
-        y_center = option.rect.top() + option.rect.height() / 2
-        button_height = 24
-
-        # Obszar przycisku
-        button_rect = QRect(
-            int(x_center), 
-            int(y_center - button_height/2),
-            int(button_width), 
-            int(button_height)
-        )
-
-        # Rysowanie emotikony
-        painter.setFont(QFont("Segoe UI", 12))
-        painter.setPen(Qt.white)
-        painter.drawText(button_rect, Qt.AlignCenter, "⋮")
-
-        painter.restore()
-
-    def editorEvent(self, event, model, option, index):
-        if event.type() == QEvent.Type.MouseButtonRelease:
+        
+        try:
             # Obliczenie szerokości przycisku i odstępów
             total_width = option.rect.width()
             button_width = 30
-            spacing = (total_width - button_width) / 2
+            spacing = (total_width - button_width) / 2  # Odstęp do wycentrowania
 
             # Pozycja x dla przycisku
             x_center = option.rect.left() + spacing
@@ -379,9 +370,44 @@ class ActionButtonDelegate(QStyledItemDelegate):
                 int(button_height)
             )
 
-            if button_rect.contains(event.pos()):
-                self.parent().action_requested.emit(index.row())
-                return True
+            # Rysowanie emotikony
+            painter.setFont(QFont("Segoe UI", 12))
+            painter.setPen(Qt.white)
+            painter.drawText(button_rect, Qt.AlignCenter, "⋮")
+        except Exception as e:
+            logger.error(f"Błąd podczas rysowania przycisku akcji: {e}")
+        finally:
+            # Zawsze przywracaj stan paintera
+            painter.restore()
+
+    def editorEvent(self, event, model, option, index):
+        try:
+            if event.type() == QEvent.Type.MouseButtonRelease:
+                # Obliczenie szerokości przycisku i odstępów
+                total_width = option.rect.width()
+                button_width = 30
+                spacing = (total_width - button_width) / 2
+
+                # Pozycja x dla przycisku
+                x_center = option.rect.left() + spacing
+
+                # Pozycja y (centr pionowy)
+                y_center = option.rect.top() + option.rect.height() / 2
+                button_height = 24
+
+                # Obszar przycisku
+                button_rect = QRect(
+                    int(x_center), 
+                    int(y_center - button_height/2),
+                    int(button_width), 
+                    int(button_height)
+                )
+
+                if button_rect.contains(event.pos()):
+                    self.parent().action_requested.emit(index.row())
+                    return True
+        except Exception as e:
+            logger.error(f"Błąd podczas obsługi zdarzenia edytora: {e}")
 
         return super().editorEvent(event, model, option, index)
 
@@ -1055,6 +1081,9 @@ class DepositsTab(QWidget):
         
         # Tabela depozytów do odbioru
         self.pending_deposits_table = DepositsTable()
+        self.pending_deposits_table.customContextMenuRequested.connect(self.show_context_menu)
+        self.pending_deposits_table.doubleClicked.connect(self.on_table_double_clicked)
+        self.pending_deposits_table.action_requested.connect(self.show_deposit_actions)
         layout.addWidget(self.pending_deposits_table)
         
         # Przyciski akcji masowych specyficznych dla tej zakładki
@@ -1069,6 +1098,19 @@ class DepositsTab(QWidget):
         self.print_list_btn.setFixedHeight(40)
         self.print_list_btn.setStyleSheet(STYLES["UTILITY_BUTTON"])
         actions_layout.addWidget(self.print_list_btn)
+        
+        # Dodanie nowych przycisków dla SMS i Email
+        self.send_all_email_btn = QPushButton(_("📧 Wyślij powiadomienia Email"))
+        self.send_all_email_btn.setFixedHeight(40)
+        self.send_all_email_btn.setStyleSheet(STYLES["UTILITY_BUTTON"])
+        self.send_all_email_btn.clicked.connect(self.send_email_notifications)
+        actions_layout.addWidget(self.send_all_email_btn)
+        
+        self.send_all_sms_btn = QPushButton(_("📱 Wyślij powiadomienia SMS"))
+        self.send_all_sms_btn.setFixedHeight(40)
+        self.send_all_sms_btn.setStyleSheet(STYLES["UTILITY_BUTTON"])
+        self.send_all_sms_btn.clicked.connect(self.send_sms_notifications)
+        actions_layout.addWidget(self.send_all_sms_btn)
         
         layout.addLayout(actions_layout)
     
@@ -1459,6 +1501,7 @@ class DepositsTab(QWidget):
             print_label_action = menu.addAction(f"🏷️ {_('Generuj etykietę')}")
             print_receipt_action = menu.addAction(f"📃 {_('Generuj potwierdzenie przyjęcia')}")
             send_email_action = menu.addAction(f"📧 {_('Wyślij powiadomienie email')}")
+            send_sms_action = menu.addAction(f"📱 {_('Wyślij powiadomienie SMS')}")
             menu.addSeparator()
             
             # Podmenu zmiany statusu
@@ -1500,6 +1543,8 @@ class DepositsTab(QWidget):
                 self.generate_deposit_receipt(deposit_id)
             elif action == send_email_action:
                 self.send_deposit_email_notification(deposit_id)
+            elif action == send_sms_action:
+                self.send_deposit_sms_notification(deposit_id)
         
         except Exception as e:
             logger.error(f"Błąd podczas wyświetlania menu kontekstowego: {e}")
@@ -1532,6 +1577,9 @@ class DepositsTab(QWidget):
             view_action = menu.addAction(f"👁️ {_('Szczegóły')}")
             edit_action = menu.addAction(f"✏️ {_('Edytuj')}")
             menu.addSeparator()
+            email_action = menu.addAction(f"📧 {_('Email')}")
+            sms_action = menu.addAction(f"📱 {_('SMS')}")
+            menu.addSeparator()
             release_action = menu.addAction(f"📤 {_('Wydaj')}")
             
             # Status depozytu
@@ -1552,6 +1600,10 @@ class DepositsTab(QWidget):
                 self.view_deposit_details(deposit_id)
             elif action == edit_action:
                 self.edit_deposit(deposit_id)
+            elif action == email_action:
+                self.send_deposit_email_notification(deposit_id)
+            elif action == sms_action:
+                self.send_deposit_sms_notification(deposit_id)
             elif action == release_action:
                 self.release_deposit(deposit_id=deposit_id)
             elif action == delete_action and delete_action is not None:
@@ -1563,6 +1615,7 @@ class DepositsTab(QWidget):
                 f"Błąd podczas wyświetlania menu akcji: {e}",
                 NotificationTypes.ERROR
             )
+
     
     def add_deposit(self):
         """Otwiera dialog dodawania nowego depozytu."""
@@ -1681,6 +1734,32 @@ class DepositsTab(QWidget):
                 NotificationTypes.ERROR
             )
     
+    def identify_foreign_key_tables(self):
+        """Identyfikuje tabele powiązane kluczem obcym z tabelą deposits."""
+        try:
+            cursor = self.conn.cursor()
+            # Znajdź wszystkie tabele w bazie danych
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
+            tables = [table[0] for table in cursor.fetchall()]
+            
+            related_tables = []
+            for table in tables:
+                # Sprawdź każdą tabelę czy ma powiązanie z deposits
+                cursor.execute(f"PRAGMA foreign_key_list({table})")
+                for fk in cursor.fetchall():
+                    if fk[2] == 'deposits':  # jeśli tabela ma klucz obcy do deposits
+                        related_tables.append({
+                            'table': table,
+                            'from': fk[3],  # kolumna w tej tabeli
+                            'to': fk[4]     # kolumna w tabeli deposits
+                        })
+            
+            print("Tabele powiązane z deposits:", related_tables)
+            return related_tables
+        except Exception as e:
+            print(f"Błąd podczas identyfikacji tabel: {e}")
+            return []
+
     def delete_deposit(self, deposit_id):
         """Usuwa depozyt."""
         try:
@@ -1701,7 +1780,18 @@ class DepositsTab(QWidget):
                     # Rozpocznij transakcję
                     self.conn.execute("BEGIN")
                     
-                    # Usuń depozyt
+                    # Znajdź powiązane tabele
+                    related_tables = self.identify_foreign_key_tables()
+                    
+                    # Usuń powiązane rekordy ze wszystkich powiązanych tabel
+                    for related in related_tables:
+                        cursor.execute(f"DELETE FROM {related['table']} WHERE {related['from']} = ?", (deposit_id,))
+                        print(f"Usunięto powiązane rekordy z tabeli {related['table']}")
+                    
+                    # Sprawdź czy są rekordy w email_logs
+                    cursor.execute("DELETE FROM email_logs WHERE deposit_id = ?", (deposit_id,))
+                    
+                    # Na końcu usuń depozyt
                     cursor.execute("DELETE FROM deposits WHERE id = ?", (deposit_id,))
                     
                     # Zatwierdź zmiany
@@ -2328,20 +2418,61 @@ class DepositsTab(QWidget):
                 )
                 return
             
-            # Tu można zaimplementować faktyczną wysyłkę emaila
-            # Na razie symulujemy wysyłkę
-            
             # Zamknij dialog podglądu
             dialog.accept()
             
-            # Pokaż powiadomienie o wysłaniu
+            # Pokazujemy komunikat, że wysyłamy email
+            # Używamy NotificationManager zamiast QMessageBox, żeby nie blokować interfejsu
             NotificationManager.get_instance().show_notification(
-                f"Email wysłany do {email}",
-                NotificationTypes.SUCCESS
+                f"Wysyłanie emaila do {email}...",
+                NotificationTypes.INFO
             )
             
-            # Zapisz informację o wysłanym emailu w bazie danych (jeśli taka tabela istnieje)
+            # FAKTYCZNE WYSYŁANIE EMAILA
             try:
+                import smtplib
+                from email.mime.text import MIMEText
+                from email.mime.multipart import MIMEMultipart
+                
+                # Przygotuj wiadomość
+                msg = MIMEMultipart()
+                msg['From'] = email_address
+                msg['To'] = email
+                msg['Subject'] = subject
+                
+                # Dodanie treści HTML
+                msg.attach(MIMEText(body, 'html'))
+                
+                # Utworzenie sesji SMTP
+                logger.info(f"Próba połączenia z serwerem SMTP: {smtp_server}:{smtp_port}")
+                
+                session = smtplib.SMTP(smtp_server, smtp_port)
+                session.set_debuglevel(1)  # Włącz debugowanie SMTP
+                
+                # Dla większości serwerów konieczne jest rozpoczęcie sesji TLS
+                if use_ssl:
+                    logger.info("Uruchamianie TLS...")
+                    session.starttls()
+                
+                # Logowanie do serwera SMTP
+                logger.info(f"Próba logowania do serwera SMTP jako {email_address}")
+                session.login(email_address, email_password)
+                
+                # Wysłanie wiadomości
+                logger.info(f"Wysyłanie wiadomości do {email}")
+                session.sendmail(email_address, email, msg.as_string())
+                
+                # Zakończenie sesji
+                logger.info("Zamykanie sesji SMTP")
+                session.quit()
+                
+                # Powiadomienie o sukcesie
+                NotificationManager.get_instance().show_notification(
+                    f"Email został pomyślnie wysłany do {email}",
+                    NotificationTypes.SUCCESS
+                )
+                
+                # Zapisz informację o wysłanym emailu w bazie danych
                 cursor = self.conn.cursor()
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS email_logs (
@@ -2356,21 +2487,68 @@ class DepositsTab(QWidget):
                 """)
                 
                 # Zapisz log wysłanego emaila
+                from datetime import datetime
                 current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 cursor.execute(
                     "INSERT INTO email_logs (deposit_id, email, subject, sent_date, status) VALUES (?, ?, ?, ?, ?)",
                     (deposit_id.replace('D', ''), email, subject, current_date, "Wysłany")
                 )
                 self.conn.commit()
+                
+                logger.info(f"Wysłano email dla depozytu {deposit_id} do {email}")
+                
+            except smtplib.SMTPAuthenticationError as e:
+                logger.error(f"Błąd uwierzytelniania SMTP: {e}")
+                NotificationManager.get_instance().show_notification(
+                    f"Błąd logowania do serwera SMTP: {e}",
+                    NotificationTypes.ERROR
+                )
+                
+                # Zapisz log błędu
+                cursor = self.conn.cursor()
+                current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cursor.execute(
+                    "INSERT INTO email_logs (deposit_id, email, subject, sent_date, status) VALUES (?, ?, ?, ?, ?)",
+                    (deposit_id.replace('D', ''), email, subject, current_date, f"Błąd: {e}")
+                )
+                self.conn.commit()
+                
+            except smtplib.SMTPException as e:
+                logger.error(f"Błąd SMTP: {e}")
+                NotificationManager.get_instance().show_notification(
+                    f"Błąd SMTP: {e}",
+                    NotificationTypes.ERROR
+                )
+                
+                # Zapisz log błędu
+                cursor = self.conn.cursor()
+                current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cursor.execute(
+                    "INSERT INTO email_logs (deposit_id, email, subject, sent_date, status) VALUES (?, ?, ?, ?, ?)",
+                    (deposit_id.replace('D', ''), email, subject, current_date, f"Błąd: {e}")
+                )
+                self.conn.commit()
+                
             except Exception as e:
-                logger.error(f"Błąd podczas zapisywania logu emaila: {e}")
-            
-            logger.info(f"Wysłano email dla depozytu {deposit_id} do {email}")
+                logger.error(f"Nieoczekiwany błąd podczas wysyłania emaila: {e}")
+                NotificationManager.get_instance().show_notification(
+                    f"Błąd podczas wysyłania emaila: {e}",
+                    NotificationTypes.ERROR
+                )
+                
+                # Zapisz log błędu
+                cursor = self.conn.cursor()
+                current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cursor.execute(
+                    "INSERT INTO email_logs (deposit_id, email, subject, sent_date, status) VALUES (?, ?, ?, ?, ?)",
+                    (deposit_id.replace('D', ''), email, subject, current_date, f"Błąd: {e}")
+                )
+                self.conn.commit()
             
         except Exception as e:
-            logger.error(f"Błąd podczas wysyłania emaila: {e}")
+            logger.error(f"Błąd podczas przygotowania emaila: {e}")
             NotificationManager.get_instance().show_notification(
-                f"Błąd podczas wysyłania emaila: {e}",
+                f"Błąd podczas przygotowania emaila: {e}",
                 NotificationTypes.ERROR
             )
 
@@ -2428,6 +2606,10 @@ class DepositsTab(QWidget):
             dict: Szablon email z opcjonalnie podstawionymi danymi
         """
         try:
+            # Import potrzebnych modułów i zmiennych
+            from utils.paths import CONFIG_DIR
+            from ui.dialogs.settings_dialog import DEFAULT_EMAIL_TEMPLATES
+            
             # Pobierz dane firmy
             settings = QSettings("TireDepositManager", "Settings")
             company_data = {
@@ -2447,7 +2629,6 @@ class DepositsTab(QWidget):
                     templates = json.load(f)
             else:
                 # Jeśli plik nie istnieje, użyj domyślnych szablonów
-                from settings_dialog import DEFAULT_EMAIL_TEMPLATES
                 templates = {"email": DEFAULT_EMAIL_TEMPLATES}
             
             # Wybierz szablon
@@ -2493,6 +2674,10 @@ class DepositsTab(QWidget):
             str: Szablon etykiety z opcjonalnie podstawionymi danymi
         """
         try:
+            # Import potrzebnych modułów i zmiennych
+            from utils.paths import CONFIG_DIR
+            from ui.dialogs.settings_dialog import DEFAULT_LABEL_TEMPLATE
+            
             # Pobierz dane firmy
             settings = QSettings("TireDepositManager", "Settings")
             company_data = {
@@ -2512,7 +2697,6 @@ class DepositsTab(QWidget):
                     templates = json.load(f)
             else:
                 # Jeśli plik nie istnieje, użyj domyślnego szablonu
-                from settings_dialog import DEFAULT_LABEL_TEMPLATE
                 templates = {"label": {"default": DEFAULT_LABEL_TEMPLATE}}
             
             # Wybierz szablon
@@ -2556,6 +2740,10 @@ class DepositsTab(QWidget):
             str: Szablon potwierdzenia z opcjonalnie podstawionymi danymi
         """
         try:
+            # Import potrzebnych modułów i zmiennych
+            from utils.paths import CONFIG_DIR
+            from ui.dialogs.settings_dialog import DEFAULT_RECEIPT_TEMPLATE
+            
             # Pobierz dane firmy
             settings = QSettings("TireDepositManager", "Settings")
             company_data = {
@@ -2575,7 +2763,6 @@ class DepositsTab(QWidget):
                     templates = json.load(f)
             else:
                 # Jeśli plik nie istnieje, użyj domyślnego szablonu
-                from settings_dialog import DEFAULT_RECEIPT_TEMPLATE
                 templates = {"receipt": {"default": DEFAULT_RECEIPT_TEMPLATE}}
             
             # Wybierz szablon
@@ -2608,10 +2795,806 @@ class DepositsTab(QWidget):
         <p>Klient: {client_name}</p>
     </body>
     </html>"""
+
+    def send_deposit_sms_notification(self, deposit_id):
+        """Wysyła powiadomienie SMS dla depozytu."""
+        try:
+            cursor = self.conn.cursor()
+            
+            # Pobierz dane depozytu
+            query = """
+            SELECT 
+                d.id,
+                c.name AS client_name,
+                c.phone_number,
+                d.tire_size,
+                d.tire_type,
+                d.quantity,
+                d.status,
+                d.location,
+                d.deposit_date,
+                d.pickup_date,
+                d.notes
+            FROM 
+                deposits d
+            JOIN 
+                clients c ON d.client_id = c.id
+            WHERE 
+                d.id = ?
+            """
+            
+            cursor.execute(query, (deposit_id,))
+            deposit = cursor.fetchone()
+            
+            if not deposit:
+                NotificationManager.get_instance().show_notification(
+                    f"Nie znaleziono depozytu o ID {deposit_id}",
+                    NotificationTypes.ERROR
+                )
+                return
+            
+            # Formatowanie ID depozytu
+            deposit_id_str = f"D{str(deposit['id']).zfill(3)}"
+            
+            # Sprawdź, czy klient ma numer telefonu
+            if not deposit['phone_number']:
+                NotificationManager.get_instance().show_notification(
+                    f"Klient {deposit['client_name']} nie ma podanego numeru telefonu",
+                    NotificationTypes.WARNING
+                )
+                return
+            
+            # Formatowanie dat
+            deposit_date = datetime.strptime(deposit['deposit_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+            pickup_date = datetime.strptime(deposit['pickup_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+            current_date = datetime.now().strftime("%d-%m-%Y")
+            
+            # Pobierz dane firmy z ustawień
+            settings = QSettings("TireDepositManager", "Settings")
+            company_name = settings.value("company_name", "Serwis Opon")
+            company_address = settings.value("company_address", "")
+            company_phone = settings.value("company_phone", "")
+            
+            # Przygotowanie danych do szablonu
+            template_data = {
+                "deposit_id": deposit_id_str,
+                "client_name": deposit['client_name'],
+                "phone_number": deposit['phone_number'],
+                "tire_size": deposit['tire_size'],
+                "tire_type": deposit['tire_type'],
+                "quantity": str(deposit['quantity']),
+                "location": deposit['location'],
+                "deposit_date": deposit_date,
+                "pickup_date": pickup_date,
+                "status": deposit['status'],
+                "notes": deposit['notes'] or "",
+                "current_date": current_date,
+                "company_name": company_name,
+                "company_address": company_address,
+                "company_phone": company_phone,
+            }
+            
+            # Wybierz odpowiedni szablon SMS w zależności od statusu
+            template_key = "Przyjęcie depozytu"  # domyślny szablon
+            status = deposit['status']
+            
+            if status == "Aktywny":
+                template_key = "Przyjęcie depozytu"
+            elif status == "Do odbioru":
+                template_key = "Przypomnienie o odbiorze"
+            elif status == "Zaległy":
+                template_key = "Zaległy depozyt"
+            
+            # Pobierz szablon SMS
+            sms_template = self.get_sms_template(template_key, "deposit")
+            
+            # Wypełnij szablon danymi
+            sms_content = sms_template
+            for key, value in template_data.items():
+                sms_content = sms_content.replace("{" + key + "}", str(value))
+            
+            # Pokaż okno podglądu przed wysłaniem
+            from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QTextEdit, QPushButton
+            
+            preview_dialog = QDialog(self)
+            preview_dialog.setWindowTitle("Podgląd wiadomości SMS")
+            preview_dialog.setMinimumSize(500, 300)
+            
+            preview_layout = QVBoxLayout(preview_dialog)
+            
+            # Adresat
+            to_layout = QHBoxLayout()
+            to_layout.addWidget(QLabel("Do:"))
+            to_field = QLineEdit(deposit['phone_number'])
+            to_field.setReadOnly(False)  # Możliwość edycji numeru
+            to_layout.addWidget(to_field)
+            preview_layout.addLayout(to_layout)
+            
+            # Treść SMS
+            content_label = QLabel("Treść (max 160 znaków):")
+            preview_layout.addWidget(content_label)
+            
+            sms_edit = QTextEdit(sms_content)
+            sms_edit.setMaximumHeight(150)
+            preview_layout.addWidget(sms_edit)
+            
+            # Licznik znaków
+            char_counter = QLabel(f"{len(sms_content)}/160 znaków")
+            char_counter.setAlignment(Qt.AlignRight)
+            preview_layout.addWidget(char_counter)
+            
+            # Aktualizacja licznika znaków
+            def update_counter():
+                text = sms_edit.toPlainText()
+                count = len(text)
+                sms_count = (count + 159) // 160  # Zaokrąglenie w górę
+                
+                if count > 160:
+                    char_counter.setStyleSheet("color: orange;")
+                elif count > 300:
+                    char_counter.setStyleSheet("color: red;")
+                else:
+                    char_counter.setStyleSheet("")
+                    
+                char_counter.setText(f"{count}/160 znaków ({sms_count} SMS)")
+            
+            sms_edit.textChanged.connect(update_counter)
+            update_counter()  # Aktualizacja początkowa
+            
+            # Przyciski
+            buttons_layout = QHBoxLayout()
+            cancel_btn = QPushButton("Anuluj")
+            cancel_btn.clicked.connect(preview_dialog.reject)
+            buttons_layout.addWidget(cancel_btn)
+            
+            buttons_layout.addStretch(1)
+            
+            send_btn = QPushButton("Wyślij SMS")
+            send_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #28a745;
+                    color: white;
+                    font-weight: bold;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #218838;
+                }
+            """)
+            send_btn.clicked.connect(lambda: self.confirm_send_sms(deposit_id_str, to_field.text(), sms_edit.toPlainText(), preview_dialog))
+            buttons_layout.addWidget(send_btn)
+            
+            preview_layout.addLayout(buttons_layout)
+            
+            preview_dialog.exec()
             
         except Exception as e:
-            logger.error(f"Błąd podczas generowania potwierdzenia: {e}")
+            logger.error(f"Błąd podczas przygotowania powiadomienia SMS: {e}")
             NotificationManager.get_instance().show_notification(
-                f"Błąd podczas generowania potwierdzenia: {e}",
+                f"Błąd podczas przygotowania powiadomienia SMS: {e}",
+                NotificationTypes.ERROR
+            )
+
+    def confirm_send_sms(self, deposit_id, phone_number, content, dialog):
+        """Potwierdza wysłanie SMS-a."""
+        try:
+            # Pobierz ustawienia SMS
+            settings = QSettings("TireDepositManager", "Settings")
+            sms_api_key = settings.value("sms_api_key", "")
+            sms_sender = settings.value("sms_sender", "")
+            enable_sms = settings.value("enable_sms", False, type=bool)
+            
+            # Sprawdź czy mamy wszystkie potrzebne dane
+            if not sms_api_key or not sms_sender or not enable_sms:
+                QMessageBox.warning(
+                    self,
+                    "Brak konfiguracji SMS",
+                    "Brakuje danych konfiguracyjnych serwisu SMS. Przejdź do Ustawienia > Komunikacja, aby skonfigurować wysyłanie SMS-ów."
+                )
+                return
+            
+            # Zamknij dialog podglądu
+            dialog.accept()
+            
+            # Pokazujemy komunikat, że wysyłamy SMS
+            NotificationManager.get_instance().show_notification(
+                f"Wysyłanie SMS-a do {phone_number}...",
+                NotificationTypes.INFO
+            )
+            
+            # FAKTYCZNE WYSYŁANIE SMS-a
+            try:
+                from utils.sms_sender import SMSSender, format_phone_number
+                
+                # Formatuj numer telefonu (dodaj prefiks 48 jeśli potrzeba)
+                formatted_phone = format_phone_number(phone_number)
+                
+                # Utwórz obiekt SMSSender
+                sms_sender_obj = SMSSender(sms_api_key, sms_sender)
+                
+                # Wyślij SMS
+                success, result_message = sms_sender_obj.send_sms(formatted_phone, content)
+                
+                if success:
+                    # Powiadomienie o sukcesie
+                    NotificationManager.get_instance().show_notification(
+                        f"SMS został pomyślnie wysłany do {formatted_phone}",
+                        NotificationTypes.SUCCESS
+                    )
+                    
+                    # Zapisz informację o wysłanym SMS-ie w bazie danych
+                    cursor = self.conn.cursor()
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS sms_logs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            deposit_id INTEGER,
+                            phone_number TEXT,
+                            content TEXT,
+                            sent_date TEXT,
+                            status TEXT,
+                            FOREIGN KEY (deposit_id) REFERENCES deposits (id)
+                        )
+                    """)
+                    
+                    # Zapisz log wysłanego SMS-a
+                    current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    cursor.execute(
+                        "INSERT INTO sms_logs (deposit_id, phone_number, content, sent_date, status) VALUES (?, ?, ?, ?, ?)",
+                        (deposit_id.replace('D', ''), formatted_phone, content, current_date, "Wysłany")
+                    )
+                    self.conn.commit()
+                    
+                    logger.info(f"Wysłano SMS dla depozytu {deposit_id} do {formatted_phone}")
+                else:
+                    raise Exception(result_message)
+                    
+            except Exception as e:
+                logger.error(f"Błąd podczas wysyłania SMS-a: {e}")
+                NotificationManager.get_instance().show_notification(
+                    f"Błąd podczas wysyłania SMS-a: {e}",
+                    NotificationTypes.ERROR
+                )
+                
+                # Zapisz log błędu
+                cursor = self.conn.cursor()
+                current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                cursor.execute(
+                    "INSERT INTO sms_logs (deposit_id, phone_number, content, sent_date, status) VALUES (?, ?, ?, ?, ?)",
+                    (deposit_id.replace('D', ''), phone_number, content, current_date, f"Błąd: {e}")
+                )
+                self.conn.commit()
+                
+        except Exception as e:
+            logger.error(f"Błąd podczas przygotowania SMS-a: {e}")
+            NotificationManager.get_instance().show_notification(
+                f"Błąd podczas przygotowania SMS-a: {e}",
+                NotificationTypes.ERROR
+            )
+
+    def get_sms_template(self, template_name="Przyjęcie depozytu", template_type="deposit", template_data=None):
+        """
+        Pobiera szablon SMS z pliku konfiguracyjnego.
+        
+        Args:
+            template_name (str): Nazwa szablonu SMS
+            template_type (str): Typ szablonu (deposit, order, service)
+            template_data (dict, optional): Dane do wypełnienia szablonu
+            
+        Returns:
+            str: Szablon SMS z opcjonalnie podstawionymi danymi
+        """
+        try:
+            # Import potrzebnych modułów i zmiennych
+            from utils.paths import CONFIG_DIR
+            
+            # Pobierz dane firmy
+            settings = QSettings("TireDepositManager", "Settings")
+            company_data = {
+                "company_name": settings.value("company_name", "Serwis Opon"),
+                "company_address": settings.value("company_address", ""),
+                "company_phone": settings.value("company_phone", ""),
+                "company_email": settings.value("company_email", ""),
+                "company_website": settings.value("company_website", "")
+            }
+            
+            # Ścieżka do pliku szablonów
+            templates_file = os.path.join(CONFIG_DIR, "templates.json")
+            
+            # Domyślne szablony dla różnych typów
+            default_templates = {
+                "deposit": {
+                    "Przyjęcie depozytu": "Dziekujemy za skorzystanie z naszych uslug. Przyjeto depozyt {deposit_id}. Ilosc opon: {quantity}. Odbior: {pickup_date}. {company_name}",
+                    "Przypomnienie o odbiorze": "Przypominamy o odbiorze depozytu {deposit_id}. Opony czekaja na odbior. W razie pytan prosimy o kontakt: {company_phone}. {company_name}",
+                    "Zaległy depozyt": "Depozyt {deposit_id} zalega w naszym magazynie. Prosimy o pilny kontakt: {company_phone}. {company_name}"
+                }
+            }
+            
+            # Wczytaj szablony
+            template_dict_key = f"sms_{template_type}"
+            if os.path.exists(templates_file):
+                with open(templates_file, 'r', encoding='utf-8') as f:
+                    templates = json.load(f)
+                    
+                    # Sprawdź, czy szablon istnieje
+                    if template_dict_key in templates and template_name in templates[template_dict_key]:
+                        template = templates[template_dict_key][template_name]
+                    else:
+                        # Jeśli nie istnieje, użyj domyślnego
+                        template = default_templates.get(template_type, {}).get(template_name, "")
+            else:
+                # Jeśli plik nie istnieje, użyj domyślnego szablonu
+                template = default_templates.get(template_type, {}).get(template_name, "")
+            
+            # Jeśli podano dane, podstaw je do szablonu
+            if template_data:
+                # Scal dane firmy z przekazanymi danymi
+                full_data = {**company_data, **template_data}
+                
+                # Podstaw zmienne w szablonie
+                for key, value in full_data.items():
+                    template = template.replace("{" + key + "}", str(value))
+                    
+            return template
+        
+        except Exception as e:
+            logger.error(f"Błąd podczas pobierania szablonu SMS: {e}")
+            return f"Depozyt {{{template_type}_id}}. {company_name}"  # Prosty domyślny szablon w przypadku błędu
+
+    def send_sms_notifications(self):
+        """Wysyła powiadomienia SMS do klientów."""
+        try:
+            # Sprawdź czy funkcja SMS jest skonfigurowana
+            settings = QSettings("TireDepositManager", "Settings")
+            sms_api_key = settings.value("sms_api_key", "")
+            sms_sender = settings.value("sms_sender", "")
+            enable_sms = settings.value("enable_sms", False, type=bool)
+            
+            if not sms_api_key or not sms_sender or not enable_sms:
+                QMessageBox.warning(
+                    self,
+                    "Brak konfiguracji SMS",
+                    "Brakuje danych konfiguracyjnych serwisu SMS. Przejdź do Ustawienia > Komunikacja, aby skonfigurować wysyłanie SMS-ów."
+                )
+                return
+                
+            # W zależności od aktywnej zakładki, użyj odpowiedniej tabeli
+            if self.current_tab_index == 0:
+                table = self.active_deposits_table
+                filter_status = self.current_status_filter
+            elif self.current_tab_index == 1:
+                table = self.history_deposits_table
+                filter_status = "Wydany"
+            elif self.current_tab_index == 2:
+                table = self.pending_deposits_table
+                filter_status = "Do odbioru"
+            else:
+                return
+                
+            # Wybierz domyślny szablon w zależności od zakładki
+            default_template = "Przypomnienie o odbiorze"
+            if self.current_tab_index == 0 and filter_status == "Aktywny":
+                default_template = "Przyjęcie depozytu"
+            elif self.current_tab_index == 0 and filter_status == "Zaległy":
+                default_template = "Zaległy depozyt"
+            
+            # Pobierz listę aktywnych depozytów
+            cursor = self.conn.cursor()
+            
+            # Buduj zapytanie w zależności od aktualnej zakładki i filtrów
+            query = """
+            SELECT 
+                d.id,
+                c.name AS client_name,
+                c.phone_number,
+                d.tire_size,
+                d.tire_type,
+                d.quantity,
+                d.status,
+                d.location,
+                d.deposit_date,
+                d.pickup_date,
+                d.notes
+            FROM 
+                deposits d
+            JOIN 
+                clients c ON d.client_id = c.id
+            WHERE 
+                c.phone_number IS NOT NULL AND c.phone_number != ''
+            """
+            
+            params = []
+            
+            # Dodaj filtr statusu jeśli potrzeba
+            if filter_status != "Wszystkie" and self.current_tab_index == 0:
+                query += " AND d.status = ?"
+                params.append(filter_status)
+            elif self.current_tab_index == 1:
+                query += " AND d.status = 'Wydany'"
+            elif self.current_tab_index == 2:
+                query += " AND d.status = 'Do odbioru'"
+                
+            # Wykonaj zapytanie
+            if params:
+                cursor.execute(query, params)
+            else:
+                cursor.execute(query)
+                
+            deposits = cursor.fetchall()
+            
+            # Jeśli nie ma depozytów z numerami telefonów
+            if not deposits:
+                QMessageBox.information(
+                    self,
+                    "Brak depozytów",
+                    "Nie znaleziono depozytów z przypisanymi numerami telefonów."
+                )
+                return
+                
+            # Dialog konfiguracji masowej wysyłki SMS
+            from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, QTextEdit, QPushButton, QCheckBox, QListWidget, QListWidgetItem, QApplication
+            
+            config_dialog = QDialog(self)
+            config_dialog.setWindowTitle("Wysyłanie powiadomień SMS")
+            config_dialog.setMinimumSize(600, 500)
+            
+            layout = QVBoxLayout(config_dialog)
+            
+            # Wybór szablonu
+            template_layout = QHBoxLayout()
+            template_layout.addWidget(QLabel("Wybierz szablon SMS:"))
+            
+            template_combo = QComboBox()
+            template_combo.addItems(["Przyjęcie depozytu", "Przypomnienie o odbiorze", "Zaległy depozyt"])
+            # Ustaw domyślny szablon w zależności od statusu
+            index = template_combo.findText(default_template)
+            if index >= 0:
+                template_combo.setCurrentIndex(index)
+            template_layout.addWidget(template_combo, 1)
+            
+            layout.addLayout(template_layout)
+            
+            # Treść wiadomości
+            content_label = QLabel("Treść wiadomości:")
+            layout.addWidget(content_label)
+            
+            message_edit = QTextEdit()
+            message_edit.setMinimumHeight(100)
+            layout.addWidget(message_edit)
+            
+            # Licznik znaków
+            char_counter = QLabel("0/160 znaków (1 SMS)")
+            char_counter.setAlignment(Qt.AlignRight)
+            layout.addWidget(char_counter)
+            
+            # Aktualizacja licznika znaków
+            def update_counter():
+                text = message_edit.toPlainText()
+                count = len(text)
+                sms_count = (count + 159) // 160  # Zaokrąglenie w górę
+                
+                if count > 160:
+                    char_counter.setStyleSheet("color: orange;")
+                elif count > 300:
+                    char_counter.setStyleSheet("color: red;")
+                else:
+                    char_counter.setStyleSheet("")
+                    
+                char_counter.setText(f"{count}/160 znaków ({sms_count} SMS)")
+            
+            # Aktualizacja szablonu przy zmianie wyboru
+            def update_template():
+                template_name = template_combo.currentText()
+                template_content = self.get_sms_template(template_name, "deposit")
+                message_edit.setPlainText(template_content)
+                update_counter()
+                
+            template_combo.currentIndexChanged.connect(update_template)
+            message_edit.textChanged.connect(update_counter)
+            
+            # Załaduj początkowy szablon
+            update_template()
+            
+            # Lista depozytów do wysłania
+            deposits_label = QLabel(f"Znaleziono {len(deposits)} depozytów z numerami telefonów:")
+            layout.addWidget(deposits_label)
+            
+            deposits_list = QListWidget()
+            deposits_list.setSelectionMode(QListWidget.ExtendedSelection)
+            layout.addWidget(deposits_list)
+            
+            # Wypełnij listę depozytów
+            for deposit in deposits:
+                deposit_id = f"D{str(deposit['id']).zfill(3)}"
+                status = deposit['status']
+                pickup_date = datetime.strptime(deposit['pickup_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+                
+                item = QListWidgetItem(f"{deposit_id} - {deposit['client_name']} - {deposit['phone_number']} - {status} - Odbiór: {pickup_date}")
+                item.setData(Qt.UserRole, deposit['id'])
+                deposits_list.addItem(item)
+                item.setCheckState(Qt.Checked)  # Domyślnie zaznaczone
+                
+            # Opcje
+            options_layout = QHBoxLayout()
+            
+            select_all_btn = QPushButton("Zaznacz wszystkie")
+            select_all_btn.clicked.connect(lambda: self.select_all_items(deposits_list, True))
+            options_layout.addWidget(select_all_btn)
+            
+            deselect_all_btn = QPushButton("Odznacz wszystkie")
+            deselect_all_btn.clicked.connect(lambda: self.select_all_items(deposits_list, False))
+            options_layout.addWidget(deselect_all_btn)
+            
+            options_layout.addStretch()
+            
+            layout.addLayout(options_layout)
+            
+            # Przyciski
+            buttons_layout = QHBoxLayout()
+            
+            cancel_btn = QPushButton("Anuluj")
+            cancel_btn.clicked.connect(config_dialog.reject)
+            buttons_layout.addWidget(cancel_btn)
+            
+            buttons_layout.addStretch()
+            
+            preview_btn = QPushButton("Podgląd")
+            preview_btn.clicked.connect(lambda: self.preview_mass_sms(message_edit.toPlainText(), deposits))
+            buttons_layout.addWidget(preview_btn)
+            
+            send_btn = QPushButton("Wyślij powiadomienia")
+            send_btn.setStyleSheet("""
+                QPushButton {
+                    background-color: #28a745;
+                    color: white;
+                    font-weight: bold;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #218838;
+                }
+            """)
+            
+            # Funkcja wysyłania SMS-ów
+            def send_mass_sms():
+                selected_items = []
+                
+                # Zbierz zaznaczone depozyty
+                for i in range(deposits_list.count()):
+                    item = deposits_list.item(i)
+                    if item.checkState() == Qt.Checked:
+                        deposit_id = item.data(Qt.UserRole)
+                        for deposit in deposits:
+                            if deposit['id'] == deposit_id:
+                                selected_items.append(deposit)
+                                break
+                
+                if not selected_items:
+                    QMessageBox.warning(
+                        self,
+                        "Brak zaznaczonych depozytów",
+                        "Zaznacz przynajmniej jeden depozyt do wysłania powiadomienia."
+                    )
+                    return
+                    
+                # Potwierdź wysyłkę
+                reply = QMessageBox.question(
+                    self,
+                    "Potwierdź wysyłkę",
+                    f"Czy na pewno chcesz wysłać {len(selected_items)} powiadomień SMS?",
+                    QMessageBox.Yes | QMessageBox.No,
+                    QMessageBox.No
+                )
+                
+                if reply != QMessageBox.Yes:
+                    return
+                    
+                # Zamknij dialog konfiguracji
+                config_dialog.accept()
+                
+                # Inicjalizuj SMSSender
+                from utils.sms_sender import SMSSender, format_phone_number
+                sms_sender_obj = SMSSender(sms_api_key, sms_sender)
+                
+                # Pobierz dane firmy
+                company_name = settings.value("company_name", "Serwis Opon")
+                company_address = settings.value("company_address", "")
+                company_phone = settings.value("company_phone", "")
+                
+                # Liczniki
+                success_count = 0
+                fail_count = 0
+                
+                # Pokaż dialog postępu
+                progress_dialog = QDialog(self)
+                progress_dialog.setWindowTitle("Wysyłanie SMS-ów")
+                progress_dialog.setMinimumWidth(400)
+                
+                progress_layout = QVBoxLayout(progress_dialog)
+                progress_layout.addWidget(QLabel(f"Wysyłanie {len(selected_items)} powiadomień SMS..."))
+                
+                progress_label = QLabel("Przygotowywanie...")
+                progress_layout.addWidget(progress_label)
+                
+                progress_btn = QPushButton("Anuluj")
+                progress_btn.clicked.connect(progress_dialog.reject)
+                progress_layout.addWidget(progress_btn)
+                
+                progress_dialog.show()
+                
+                # Pętla wysyłania
+                for i, deposit in enumerate(selected_items):
+                    try:
+                        # Aktualizacja etykiety postępu
+                        progress_label.setText(f"Wysyłanie ({i+1}/{len(selected_items)}): {deposit['client_name']}")
+                        QApplication.processEvents()  # Odśwież UI
+                        
+                        if progress_dialog.result() == QDialog.Rejected:
+                            break  # Anulowano
+                        
+                        # Formatowanie ID depozytu
+                        deposit_id_str = f"D{str(deposit['id']).zfill(3)}"
+                        
+                        # Formatowanie dat
+                        deposit_date = datetime.strptime(deposit['deposit_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+                        pickup_date = datetime.strptime(deposit['pickup_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+                        
+                        # Dane do szablonu
+                        template_data = {
+                            "deposit_id": deposit_id_str,
+                            "client_name": deposit['client_name'],
+                            "phone_number": deposit['phone_number'],
+                            "tire_size": deposit['tire_size'],
+                            "tire_type": deposit['tire_type'],
+                            "quantity": str(deposit['quantity']),
+                            "location": deposit['location'],
+                            "deposit_date": deposit_date,
+                            "pickup_date": pickup_date,
+                            "status": deposit['status'],
+                            "company_name": company_name,
+                            "company_address": company_address,
+                            "company_phone": company_phone
+                        }
+                        
+                        # Wypełnij szablon danymi
+                        message_content = message_edit.toPlainText()
+                        for key, value in template_data.items():
+                            message_content = message_content.replace("{" + key + "}", str(value))
+                        
+                        # Wyślij SMS
+                        formatted_phone = format_phone_number(deposit['phone_number'])
+                        success, result_message = sms_sender_obj.send_sms(formatted_phone, message_content)
+                        
+                        # Zapisz log
+                        cursor = self.conn.cursor()
+                        cursor.execute("""
+                            CREATE TABLE IF NOT EXISTS sms_logs (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                deposit_id INTEGER,
+                                phone_number TEXT,
+                                content TEXT,
+                                sent_date TEXT,
+                                status TEXT,
+                                FOREIGN KEY (deposit_id) REFERENCES deposits (id)
+                            )
+                        """)
+                        
+                        current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                        
+                        if success:
+                            success_count += 1
+                            status = "Wysłany"
+                        else:
+                            fail_count += 1
+                            status = f"Błąd: {result_message}"
+                        
+                        cursor.execute(
+                            "INSERT INTO sms_logs (deposit_id, phone_number, content, sent_date, status) VALUES (?, ?, ?, ?, ?)",
+                            (deposit['id'], formatted_phone, message_content, current_date, status)
+                        )
+                        self.conn.commit()
+                        
+                    except Exception as e:
+                        logger.error(f"Błąd podczas wysyłania SMS: {e}")
+                        fail_count += 1
+                
+                # Zamknij dialog postępu
+                progress_dialog.accept()
+                
+                # Pokaż podsumowanie
+                QMessageBox.information(
+                    self,
+                    "Podsumowanie wysyłki SMS",
+                    f"Wysłano: {success_count} powiadomień\n"
+                    f"Nieudane: {fail_count} powiadomień\n\n"
+                    f"Szczegóły można znaleźć w logach systemu."
+                )
+                
+                # Odśwież statystyki
+                self.load_statistics()
+                
+            send_btn.clicked.connect(send_mass_sms)
+            buttons_layout.addWidget(send_btn)
+            
+            layout.addLayout(buttons_layout)
+            
+            # Wyświetl dialog
+            config_dialog.exec()
+            
+        except Exception as e:
+            logger.error(f"Błąd podczas przygotowania masowej wysyłki SMS: {e}")
+            NotificationManager.get_instance().show_notification(
+                f"Błąd podczas przygotowania masowej wysyłki SMS: {e}",
+                NotificationTypes.ERROR
+            )
+
+    def select_all_items(self, list_widget, checked=True):
+        """Zaznacza lub odznacza wszystkie elementy na liście."""
+        for i in range(list_widget.count()):
+            item = list_widget.item(i)
+            if checked:
+                item.setCheckState(Qt.Checked)
+            else:
+                item.setCheckState(Qt.Unchecked)
+
+    def preview_mass_sms(self, template, deposits):
+        """Wyświetla podgląd SMS-a z podstawieniem danych przykładowego depozytu."""
+        try:
+            if not deposits:
+                return
+                
+            # Pobierz pierwszy depozyt jako przykład
+            deposit = deposits[0]
+            
+            # Formatowanie ID depozytu
+            deposit_id_str = f"D{str(deposit['id']).zfill(3)}"
+            
+            # Formatowanie dat
+            deposit_date = datetime.strptime(deposit['deposit_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+            pickup_date = datetime.strptime(deposit['pickup_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+            
+            # Pobierz dane firmy z ustawień
+            settings = QSettings("TireDepositManager", "Settings")
+            company_name = settings.value("company_name", "Serwis Opon")
+            company_address = settings.value("company_address", "")
+            company_phone = settings.value("company_phone", "")
+            
+            # Dane do szablonu
+            template_data = {
+                "deposit_id": deposit_id_str,
+                "client_name": deposit['client_name'],
+                "phone_number": deposit['phone_number'],
+                "tire_size": deposit['tire_size'],
+                "tire_type": deposit['tire_type'],
+                "quantity": str(deposit['quantity']),
+                "location": deposit['location'],
+                "deposit_date": deposit_date,
+                "pickup_date": pickup_date,
+                "status": deposit['status'],
+                "company_name": company_name,
+                "company_address": company_address,
+                "company_phone": company_phone
+            }
+            
+            # Wypełnij szablon danymi
+            message_content = template
+            for key, value in template_data.items():
+                message_content = message_content.replace("{" + key + "}", str(value))
+            
+            # Wyświetl podgląd
+            QMessageBox.information(
+                self,
+                "Podgląd SMS-a (przykład)",
+                f"Dla depozytu: {deposit_id_str} - {deposit['client_name']}\n\n"
+                f"Treść: {message_content}\n\n"
+                f"Długość: {len(message_content)} znaków\n"
+                f"SMS-ów: {(len(message_content) + 159) // 160}"
+            )
+            
+        except Exception as e:
+            logger.error(f"Błąd podczas generowania podglądu SMS: {e}")
+            NotificationManager.get_instance().show_notification(
+                f"Błąd podczas generowania podglądu SMS: {e}",
                 NotificationTypes.ERROR
             )

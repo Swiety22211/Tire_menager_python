@@ -328,8 +328,8 @@ class InventoryDialog(QDialog):
             
             # Przygotowanie danych
             tire_data = {
-                "manufacturer": self.manufacturer_input.text().strip(),
-                "model": self.model_input.text().strip(),
+                "manufacturer": self.manufacturer_input.text().strip(),  # Zmień brand_model na manufacturer
+                "model": self.model_input.text().strip(),  # Dodaj model jako osobne pole
                 "size": self.size_input.text().strip(),
                 "type": self.type_combo.currentText(),
                 "condition": self.condition_combo.currentText(),
@@ -626,3 +626,4 @@ class InventoryDialog(QDialog):
                 f"Błąd podczas zapisywania danych opony: {e}",
                 NotificationTypes.ERROR
             )
+            

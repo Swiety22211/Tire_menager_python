@@ -293,6 +293,32 @@ def initialize_database(conn):
                 created_at TEXT DEFAULT (datetime('now', 'localtime'))
             )
         ''')
+
+        # Tabela logów SMS
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS sms_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                deposit_id INTEGER,
+                phone_number TEXT,
+                content TEXT,
+                sent_date TEXT,
+                status TEXT,
+                FOREIGN KEY (deposit_id) REFERENCES deposits(id)
+            )
+        ''')
+
+        # Tabela logów Email
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS email_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                deposit_id INTEGER,
+                email TEXT,
+                subject TEXT,
+                sent_date TEXT,
+                status TEXT,
+                FOREIGN KEY (deposit_id) REFERENCES deposits(id)
+            )
+        ''')
         
         # Zatwierdzenie zmian
         conn.commit()

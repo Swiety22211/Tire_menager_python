@@ -45,10 +45,15 @@ try:
         self.receipt_tab = QWidget()
         templates_tabs.addTab(self.receipt_tab, "Szablony Potwierdzeń")
         
+        # Zakładka szablonów SMS
+        self.sms_tab = QWidget()
+        templates_tabs.addTab(self.sms_tab, "Szablony SMS")
+
         layout.addWidget(templates_tabs)
         
         # Konfiguracja zakładek
         self.setup_email_tab()
+        self.setup_sms_tab()
         self.setup_label_tab()
         self.setup_receipt_tab()
             
@@ -93,6 +98,51 @@ try:
         email_layout.addRow("", test_email_button)
         
         layout.addWidget(email_group)
+
+        # Po sekcji email_group, dodaj nową grupę dla SMS API
+        sms_group = QGroupBox("Ustawienia SMS (SMS Planet)")
+        sms_layout = QFormLayout(sms_group)
+        sms_layout.setSpacing(10)
+
+        # Klucz API
+        self.sms_api_key_input = QLineEdit()
+        self.sms_api_key_input.setEchoMode(QLineEdit.Password)
+        sms_layout.addRow("Klucz API:", self.sms_api_key_input)
+
+        # Nazwa nadawcy SMS
+        self.sms_sender_input = QLineEdit()
+        self.sms_sender_input.setMaxLength(11)  # SMS Planet ogranicza długość nazwy nadawcy
+        sms_layout.addRow("Nazwa nadawcy:", self.sms_sender_input)
+
+        # Checkbox do włączenia SMS-ów
+        self.enable_sms_checkbox = QCheckBox("Włącz wysyłanie SMS")
+        sms_layout.addRow("", self.enable_sms_checkbox)
+
+        # Testowy SMS
+        test_sms_button = QPushButton("Wyślij testowy SMS")
+        test_sms_button.clicked.connect(self.send_test_sms)
+        sms_layout.addRow("", test_sms_button)
+
+        layout.addWidget(sms_group)
+
+    def has_polish_chars(self, text):
+        """Sprawdza, czy tekst zawiera polskie znaki."""
+        polish_chars = 'ąćęłńóśźżĄĆĘŁŃÓŚŹŻ'
+        return any(char in polish_chars for char in text)
+
+    def replace_polish_chars(self, text):
+        """Zastępuje polskie znaki ich odpowiednikami bez ogonków."""
+        replacements = {
+            'ą': 'a', 'ć': 'c', 'ę': 'e', 'ł': 'l', 'ń': 'n', 
+            'ó': 'o', 'ś': 's', 'ź': 'z', 'ż': 'z',
+            'Ą': 'A', 'Ć': 'C', 'Ę': 'E', 'Ł': 'L', 'Ń': 'N', 
+            'Ó': 'O', 'Ś': 'S', 'Ź': 'Z', 'Ż': 'Z'
+        }
+        
+        for polish, latin in replacements.items():
+            text = text.replace(polish, latin)
+        
+        return text
 
     def send_test_email(self):
         """Wysyła testowy email."""
@@ -822,6 +872,32 @@ class SettingsTab(QWidget):
         
         layout.addWidget(email_group)
 
+        # Po sekcji email_group, dodaj nową grupę dla SMS API
+        sms_group = QGroupBox("Ustawienia SMS (SMS Planet)")
+        sms_layout = QFormLayout(sms_group)
+        sms_layout.setSpacing(10)
+
+        # Klucz API
+        self.sms_api_key_input = QLineEdit()
+        self.sms_api_key_input.setEchoMode(QLineEdit.Password)
+        sms_layout.addRow("Klucz API:", self.sms_api_key_input)
+
+        # Nazwa nadawcy SMS
+        self.sms_sender_input = QLineEdit()
+        self.sms_sender_input.setMaxLength(11)  # SMS Planet ogranicza długość nazwy nadawcy
+        sms_layout.addRow("Nazwa nadawcy:", self.sms_sender_input)
+
+        # Checkbox do włączenia SMS-ów
+        self.enable_sms_checkbox = QCheckBox("Włącz wysyłanie SMS")
+        sms_layout.addRow("", self.enable_sms_checkbox)
+
+        # Testowy SMS
+        test_sms_button = QPushButton("Wyślij testowy SMS")
+        test_sms_button.clicked.connect(self.send_test_sms)
+        sms_layout.addRow("", test_sms_button)
+
+        layout.addWidget(sms_group)
+
     def send_test_email(self):
         """Wysyła testowy email."""
         try:
@@ -931,45 +1007,383 @@ class SettingsTab(QWidget):
                 f"Wystąpił błąd: {str(e)}"
             )
 
+    def send_test_sms(self):
+        """Wysyła testowy SMS."""
+        try:
+            # Sprawdź czy wszystkie wymagane pola są wypełnione
+            api_key = self.sms_api_key_input.text().strip()
+            sender = self.sms_sender_input.text().strip()
+            
+            if not all([api_key, sender]):
+                QMessageBox.warning(
+                    self,
+                    "Brak danych",
+                    "Proszę wypełnić wszystkie wymagane pola (klucz API, nazwa nadawcy)."
+                )
+                return
+                
+            # Zapytaj o numer docelowy
+            phone_number, ok = QInputDialog.getText(
+                self,
+                "Testowy SMS",
+                "Podaj numer telefonu, na który chcesz wysłać test (np. 123456789):",
+                QLineEdit.Normal,
+                ""
+            )
+            
+            if not ok or not phone_number:
+                return
+                
+            # Formatuj numer telefonu (dodaj prefiks 48 jeśli potrzeba)
+            from utils.sms_sender import format_phone_number
+            formatted_phone = format_phone_number(phone_number)
+            
+            # Pokazujemy komunikat, że wysyłamy SMS
+            QMessageBox.information(
+                self,
+                "Wysyłanie...",
+                f"Próba wysłania testowej wiadomości SMS na numer {formatted_phone} (prefiks kraju dodany automatycznie, jeśli go nie było).\n\n"
+                "Pojawi się komunikat o wyniku operacji."
+            )
+            
+            # Użyj klasy SMSSender zamiast bezpośrednio implementować logikę
+            try:
+                from utils.sms_sender import SMSSender
+                
+                sms_sender = SMSSender(api_key, sender)
+                message = "To jest testowa wiadomość SMS z aplikacji TireDepositManager."
+                
+                success, result_message = sms_sender.send_sms(formatted_phone, message)
+                
+                if success:
+                    QMessageBox.information(
+                        self,
+                        "Sukces",
+                        f"Testowa wiadomość SMS została pomyślnie wysłana na numer {formatted_phone}.\n\n{result_message}"
+                    )
+                else:
+                    raise Exception(result_message)
+                    
+            except Exception as e:
+                logger.error(f"Błąd podczas wysyłania testowego SMS-a: {e}")
+                QMessageBox.critical(
+                    self,
+                    "Błąd wysyłania",
+                    f"Nie udało się wysłać testowej wiadomości SMS:\n\n{str(e)}"
+                )
+                    
+        except Exception as e:
+            logger.error(f"Błąd podczas przygotowania testowego SMS-a: {e}")
+            QMessageBox.critical(
+                self,
+                "Błąd",
+                f"Wystąpił błąd: {str(e)}"
+            )
+
+    def setup_sms_tab(self):
+        """Konfiguracja zakładki szablonów SMS."""
+        layout = QVBoxLayout(self.sms_tab)
+        layout.setSpacing(15)
+        
+        # Wybór szablonu
+        select_layout = QHBoxLayout()
+        select_layout.addWidget(QLabel("Wybierz szablon:"))
+        
+        self.sms_template_combo = QComboBox()
+        self.sms_template_combo.setMinimumWidth(250)
+        self.sms_template_combo.addItems(["Nowe zamówienie", "Zamówienie w realizacji", "Zamówienie zakończone"])
+        self.sms_template_combo.currentIndexChanged.connect(self.on_sms_template_changed)
+        select_layout.addWidget(self.sms_template_combo)
+        
+        # Przyciski dodawania/usuwania szablonów
+        self.add_sms_template_btn = QPushButton("+")
+        self.add_sms_template_btn.setToolTip("Dodaj nowy szablon")
+        self.add_sms_template_btn.setFixedSize(30, 30)
+        self.add_sms_template_btn.clicked.connect(self.add_sms_template)
+        select_layout.addWidget(self.add_sms_template_btn)
+        
+        self.remove_sms_template_btn = QPushButton("-")
+        self.remove_sms_template_btn.setToolTip("Usuń wybrany szablon")
+        self.remove_sms_template_btn.setFixedSize(30, 30)
+        self.remove_sms_template_btn.clicked.connect(self.remove_sms_template)
+        select_layout.addWidget(self.remove_sms_template_btn)
+        
+        select_layout.addStretch()
+        
+        layout.addLayout(select_layout)
+        
+        # Edytor treści SMS-a
+        self.sms_content_edit = QTextEdit()
+        self.sms_content_edit.setMinimumHeight(150)
+        self.sms_content_edit.setMaximumHeight(150)  # SMS-y są krótkie
+        layout.addWidget(self.sms_content_edit)
+        
+        # Licznik znaków
+        self.sms_char_counter = QLabel("0/160 znaków (1 SMS)")
+        self.sms_char_counter.setAlignment(Qt.AlignRight)
+        layout.addWidget(self.sms_char_counter)
+        
+        # Aktualizacja licznika znaków przy zmianie treści
+        self.sms_content_edit.textChanged.connect(self.update_sms_char_counter)
+        
+        # Lista dostępnych zmiennych
+        variables_group = QGroupBox("Dostępne zmienne")
+        variables_layout = QVBoxLayout(variables_group)
+        
+        variables_label = QLabel(
+            "Możesz użyć następujących zmiennych w szablonie SMS:\n"
+            "{order_id} - ID zamówienia\n"
+            "{client_name} - Nazwa klienta\n"
+            "{status} - Status zamówienia\n"
+            "{date} - Data zamówienia\n"
+            "{amount} - Kwota zamówienia\n"
+            "{company_name} - Nazwa firmy"
+        )
+        variables_label.setStyleSheet("font-family: monospace;")
+        variables_layout.addWidget(variables_label)
+        
+        layout.addWidget(variables_group)
+        
+        # Przyciski
+        buttons_layout = QHBoxLayout()
+        
+        reset_btn = QPushButton("Resetuj do domyślnych")
+        reset_btn.clicked.connect(self.reset_sms_template)
+        buttons_layout.addWidget(reset_btn)
+        
+        buttons_layout.addStretch()
+        
+        save_btn = QPushButton("Zapisz zmiany")
+        save_btn.clicked.connect(self.save_sms_template)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+        """)
+        buttons_layout.addWidget(save_btn)
+        
+        layout.addLayout(buttons_layout)
+
+    def update_sms_char_counter(self):
+        """Aktualizuje licznik znaków dla SMS-a."""
+        text = self.sms_content_edit.toPlainText()
+        count = len(text)
+        
+        # Oblicz liczbę SMS-ów (standardowy SMS ma 160 znaków)
+        sms_count = (count + 159) // 160  # Zaokrąglenie w górę
+        
+        self.sms_char_counter.setText(f"{count}/160 znaków ({sms_count} SMS)")
+        
+        # Zmień kolor, jeśli przekroczono limit jednego SMS-a
+        if count > 160:
+            self.sms_char_counter.setStyleSheet("color: orange;")
+        elif count > 300:  # Ponad 2 SMS-y
+            self.sms_char_counter.setStyleSheet("color: red;")
+        else:
+            self.sms_char_counter.setStyleSheet("")
+
+    def on_sms_template_changed(self, index):
+        """Obsługuje zmianę szablonu SMS."""
+        try:
+            template_name = self.sms_template_combo.currentText()
+            
+            # Domyślne szablony
+            default_templates = {
+                "Nowe zamówienie": "Szanowny Kliencie! Twoje zamówienie {order_id} zostało przyjęte. Kwota: {amount} zł. Dziękujemy! {company_name}",
+                "Zamówienie w realizacji": "Zamówienie {order_id} jest w realizacji. Poinformujemy o jego zakończeniu. {company_name}",
+                "Zamówienie zakończone": "Zamówienie {order_id} zostało zrealizowane. Zapraszamy do odbioru. Dziękujemy za współpracę! {company_name}"
+            }
+            
+            # Sprawdź, czy szablon istnieje w wewnętrznej strukturze
+            template_content = ""
+            if "sms" in self.templates and template_name in self.templates["sms"]:
+                template_content = self.templates["sms"][template_name]
+            else:
+                # Jeśli nie istnieje, użyj domyślnego
+                template_content = default_templates.get(template_name, "")
+            
+            # Ustaw pola formularza
+            self.sms_content_edit.setPlainText(template_content)
+            
+            # Aktualizuj licznik znaków
+            self.update_sms_char_counter()
+            
+        except Exception as e:
+            logger.error(f"Błąd podczas zmiany szablonu SMS: {e}")
+
+    def add_sms_template(self):
+        """Dodaje nowy szablon SMS."""
+        try:
+            name, ok = QInputDialog.getText(
+                self, 
+                "Nowy szablon SMS", 
+                "Podaj nazwę nowego szablonu:"
+            )
+            
+            if ok and name:
+                # Sprawdź, czy szablon o tej nazwie już istnieje
+                if name in self.templates.get("sms", {}):
+                    QMessageBox.warning(
+                        self, 
+                        "Błąd", 
+                        f"Szablon o nazwie '{name}' już istnieje."
+                    )
+                    return
+                
+                # Dodaj nowy pusty szablon
+                self.templates.setdefault("sms", {})
+                self.templates["sms"][name] = ""
+                
+                # Dodaj nowy szablon do listy
+                self.sms_template_combo.addItem(name)
+                
+                # Ustaw nowy szablon jako aktywny
+                index = self.sms_template_combo.count() - 1
+                self.sms_template_combo.setCurrentIndex(index)
+                
+                # Zapisz szablony
+                self.save_templates()
+        except Exception as e:
+            logger.error(f"Błąd podczas dodawania szablonu SMS: {e}")
+            QMessageBox.critical(
+                self, 
+                "Błąd", 
+                f"Wystąpił błąd podczas dodawania szablonu:\n{str(e)}"
+            )
+
+    def remove_sms_template(self):
+        """Usuwa wybrany szablon SMS."""
+        try:
+            # Pobierz bieżący indeks i nazwę szablonu
+            index = self.sms_template_combo.currentIndex()
+            template_name = self.sms_template_combo.currentText()
+            
+            # Nie pozwól usunąć domyślnych szablonów
+            default_templates = ["Nowe zamówienie", "Zamówienie w realizacji", "Zamówienie zakończone"]
+            if template_name in default_templates:
+                QMessageBox.warning(
+                    self, 
+                    "Błąd", 
+                    "Nie można usunąć domyślnych szablonów."
+                )
+                return
+            
+            # Potwierdź usunięcie
+            reply = QMessageBox.question(
+                self, 
+                "Usuń szablon", 
+                f"Czy na pewno chcesz usunąć szablon '{template_name}'?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                # Usuń szablon
+                if "sms" in self.templates and template_name in self.templates["sms"]:
+                    del self.templates["sms"][template_name]
+                
+                # Usuń z listy
+                self.sms_template_combo.removeItem(index)
+                
+                # Zapisz zmiany
+                self.save_templates()
+                
+                # Ustaw domyślny szablon
+                self.sms_template_combo.setCurrentIndex(0)
+        except Exception as e:
+            logger.error(f"Błąd podczas usuwania szablonu SMS: {e}")
+            QMessageBox.critical(
+                self, 
+                "Błąd", 
+                f"Wystąpił błąd podczas usuwania szablonu:\n{str(e)}"
+            )
+
+    def save_sms_template(self):
+        """Zapisuje aktualny szablon SMS."""
+        try:
+            # Pobierz aktualną nazwę szablonu
+            template_name = self.sms_template_combo.currentText()
+            
+            # Zaktualizuj szablon
+            self.templates.setdefault("sms", {})
+            
+            self.templates["sms"][template_name] = self.sms_content_edit.toPlainText()
+            
+            # Zapisz zmiany
+            self.save_templates()
+            
+            # Powiadomienie
+            QMessageBox.information(
+                self, 
+                "Szablon SMS", 
+                f"Szablon '{template_name}' został zapisany."
+            )
+        except Exception as e:
+            logger.error(f"Błąd podczas zapisywania szablonu SMS: {e}")
+            QMessageBox.critical(
+                self, 
+                "Błąd", 
+                f"Wystąpił błąd podczas zapisywania szablonu:\n{str(e)}"
+            )
+
+    def reset_sms_template(self):
+        """Resetuje aktualny szablon SMS do domyślnych ustawień."""
+        try:
+            template_name = self.sms_template_combo.currentText()
+            
+            # Domyślne szablony
+            default_templates = {
+                "Nowe zamówienie": "Szanowny Kliencie! Twoje zamówienie {order_id} zostało przyjęte. Kwota: {amount} zł. Dziękujemy! {company_name}",
+                "Zamówienie w realizacji": "Zamówienie {order_id} jest w realizacji. Poinformujemy o jego zakończeniu. {company_name}",
+                "Zamówienie zakończone": "Zamówienie {order_id} zostało zrealizowane. Zapraszamy do odbioru. Dziękujemy za współpracę! {company_name}"
+            }
+            
+            # Sprawdź, czy to domyślny szablon
+            if template_name in default_templates:
+                default_content = default_templates[template_name]
+                
+                # Ustaw domyślny szablon
+                self.sms_content_edit.setPlainText(default_content)
+                
+                # Zapisz jako bieżący szablon
+                self.templates.setdefault("sms", {})
+                self.templates["sms"][template_name] = default_content
+                self.save_templates()
+                
+                # Aktualizuj licznik znaków
+                self.update_sms_char_counter()
+                
+                QMessageBox.information(
+                    self, 
+                    "Reset szablonu", 
+                    f"Szablon '{template_name}' został zresetowany do ustawień domyślnych."
+                )
+            else:
+                QMessageBox.warning(
+                    self, 
+                    "Reset szablonu", 
+                    "Nie można zresetować niestandardowego szablonu."
+                )
+        except Exception as e:
+            logger.error(f"Błąd podczas resetowania szablonu SMS: {e}")
+            QMessageBox.critical(
+                self, 
+                "Błąd", 
+                f"Wystąpił błąd podczas resetowania szablonu:\n{str(e)}"
+            )
+
     def browse_data_dir(self):
         """Otwiera okno wyboru katalogu danych."""
         directory = QFileDialog.getExistingDirectory(self, "Wybierz katalog danych", self.data_dir_input.text())
         if directory:
             self.data_dir_input.setText(directory)
 
-    def on_email_template_changed(self, index):
-        """Obsługuje zmianę szablonu email."""
-        try:
-            template_key = self.email_template_mapping.get(index)
-            if not template_key:
-                # Jeśli nie znaleziono w mapowaniu, użyj nazwy z combobox
-                template_key = self.email_template_combo.currentText()
-                
-            # Ustal, który szablon załadować
-            if template_key == "Aktywny depozyt":
-                template_key = "active"
-            elif template_key == "Do odbioru":
-                template_key = "pickup"
-            elif template_key == "Zaległy depozyt":
-                template_key = "overdue"
-            elif template_key == "Ogólny":
-                template_key = "general"
-            
-            # Sprawdź, czy szablon istnieje w wewnętrznej strukturze
-            if "email" in self.templates and template_key in self.templates["email"]:
-                template = self.templates["email"][template_key]
-            else:
-                # Jeśli nie istnieje, użyj domyślnego
-                template = DEFAULT_EMAIL_TEMPLATES.get(template_key, DEFAULT_EMAIL_TEMPLATES["general"])
-            
-            # Ustaw pola formularza
-            self.email_subject_edit.setText(template.get("subject", ""))
-            self.email_body_edit.setPlainText(template.get("body", ""))
-            
-            # Aktualizuj podgląd
-            self.update_email_preview()
-        except Exception as e:
-            logger.error(f"Błąd podczas zmiany szablonu email: {e}")
 
     def on_label_template_changed(self, index):
         """Obsługuje zmianę szablonu etykiety."""
@@ -1033,19 +1447,174 @@ class SettingsTab(QWidget):
                     "label": {"default": DEFAULT_LABEL_TEMPLATE},
                     "receipt": {"default": DEFAULT_RECEIPT_TEMPLATE}
                 }
+                
+                # Dodaj domyślne szablony zamówień
+                default_order_templates = {
+                    "order_nowe": {
+                        "subject": "Nowe zamówienie {order_id}",
+                        "body": """
+                        <html>
+                        <head>
+                            <style>
+                                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                                h1 { color: #4dabf7; }
+                                .header { border-bottom: 2px solid #4dabf7; padding-bottom: 10px; }
+                                .footer { margin-top: 30px; font-size: 12px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }
+                                .order-details { margin: 20px 0; padding: 10px; background-color: #f9f9f9; border-radius: 5px; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="container">
+                                <div class="header">
+                                    <h1>Nowe zamówienie {order_id}</h1>
+                                </div>
+                                
+                                <p>Witaj {client_name},</p>
+                                
+                                <p>Dziękujemy za złożenie zamówienia. Poniżej znajdziesz szczegóły:</p>
+                                
+                                <div class="order-details">
+                                    <p><strong>Data zamówienia:</strong> {order_date}<br>
+                                    <strong>Status:</strong> Nowe<br>
+                                    <strong>Kwota całkowita:</strong> {total_amount}</p>
+                                    
+                                    <h3>Pozycje zamówienia:</h3>
+                                    {items_table}
+                                </div>
+                                
+                                <p>Potwierdzamy przyjęcie Twojego zamówienia. O zmianie statusu będziemy informować Cię na bieżąco.</p>
+                                
+                                <div class="footer">
+                                    <p>Z poważaniem,<br>
+                                    Zespół {company_name}<br>
+                                    {company_address}<br>
+                                    Tel: {company_phone}<br>
+                                    Email: {company_email}<br>
+                                    {company_website}</p>
+                                </div>
+                            </div>
+                        </body>
+                        </html>
+                        """
+                    },
+                    "order_w_realizacji": {
+                        "subject": "Zamówienie {order_id} w realizacji",
+                        "body": """
+                        <html>
+                        <head>
+                            <style>
+                                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                                h1 { color: #fcc419; }
+                                .header { border-bottom: 2px solid #fcc419; padding-bottom: 10px; }
+                                .footer { margin-top: 30px; font-size: 12px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }
+                                .order-details { margin: 20px 0; padding: 10px; background-color: #f9f9f9; border-radius: 5px; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="container">
+                                <div class="header">
+                                    <h1>Zamówienie {order_id} w realizacji</h1>
+                                </div>
+                                
+                                <p>Witaj {client_name},</p>
+                                
+                                <p>Informujemy, że Twoje zamówienie jest obecnie w trakcie realizacji.</p>
+                                
+                                <div class="order-details">
+                                    <p><strong>Data zamówienia:</strong> {order_date}<br>
+                                    <strong>Status:</strong> W realizacji<br>
+                                    <strong>Kwota całkowita:</strong> {total_amount}</p>
+                                    
+                                    <h3>Pozycje zamówienia:</h3>
+                                    {items_table}
+                                </div>
+                                
+                                <p>Pracujemy nad realizacją Twojego zamówienia. O zmianie statusu poinformujemy Cię mailowo.</p>
+                                
+                                <div class="footer">
+                                    <p>Z poważaniem,<br>
+                                    Zespół {company_name}<br>
+                                    {company_address}<br>
+                                    Tel: {company_phone}<br>
+                                    Email: {company_email}<br>
+                                    {company_website}</p>
+                                </div>
+                            </div>
+                        </body>
+                        </html>
+                        """
+                    },
+                    "order_zakończone": {
+                        "subject": "Zamówienie {order_id} zrealizowane",
+                        "body": """
+                        <html>
+                        <head>
+                            <style>
+                                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                                h1 { color: #51cf66; }
+                                .header { border-bottom: 2px solid #51cf66; padding-bottom: 10px; }
+                                .footer { margin-top: 30px; font-size: 12px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }
+                                .order-details { margin: 20px 0; padding: 10px; background-color: #f9f9f9; border-radius: 5px; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="container">
+                                <div class="header">
+                                    <h1>Zamówienie {order_id} zrealizowane</h1>
+                                </div>
+                                
+                                <p>Witaj {client_name},</p>
+                                
+                                <p>Z przyjemnością informujemy, że Twoje zamówienie zostało zrealizowane.</p>
+                                
+                                <div class="order-details">
+                                    <p><strong>Data zamówienia:</strong> {order_date}<br>
+                                    <strong>Status:</strong> Zakończone<br>
+                                    <strong>Kwota całkowita:</strong> {total_amount}</p>
+                                    
+                                    <h3>Pozycje zamówienia:</h3>
+                                    {items_table}
+                                </div>
+                                
+                                <p>Dziękujemy za skorzystanie z naszych usług. Mamy nadzieję, że jesteś zadowolony z realizacji zamówienia.</p>
+                                
+                                <div class="footer">
+                                    <p>Z poważaniem,<br>
+                                    Zespół {company_name}<br>
+                                    {company_address}<br>
+                                    Tel: {company_phone}<br>
+                                    Email: {company_email}<br>
+                                    {company_website}</p>
+                                </div>
+                            </div>
+                        </body>
+                        </html>
+                        """
+                    }
+                }
+                
+                # Dodaj szablony zamówień do domyślnych szablonów
+                self.templates["email"].update(default_order_templates)
+                
                 self.save_templates()
                 
             # Wypełnienie combo boxów z nazwami szablonów
             self.email_template_mapping = {
-                0: "active",
-                1: "pickup",
-                2: "overdue",
-                3: "general"
+                0: "Aktywny depozyt",
+                1: "Do odbioru",
+                2: "Zaległy depozyt",
+                3: "Ogólny",
+                4: "Zamówienie - Nowe",
+                5: "Zamówienie - W realizacji", 
+                6: "Zamówienie - Zakończone"
             }
             
             # Ładowanie niestandardowych szablonów email
             for template_name in self.templates.get("email", {}):
-                if template_name not in ["active", "pickup", "overdue", "general"]:
+                if template_name not in ["active", "pickup", "overdue", "general", "order_nowe", "order_w_realizacji", "order_zakończone"]:
                     self.email_template_combo.addItem(template_name)
                     index = self.email_template_combo.count() - 1
                     self.email_template_mapping[index] = template_name
@@ -1176,6 +1745,9 @@ class SettingsTab(QWidget):
             self.smtp_server_input.setText(self.settings.value("smtp_server", ""))
             self.smtp_port_spin.setValue(self.settings.value("smtp_port", 587, type=int))
             self.use_ssl_checkbox.setChecked(self.settings.value("use_ssl", True, type=bool))
+            self.sms_api_key_input.setText(self.settings.value("sms_api_key", ""))
+            self.sms_sender_input.setText(self.settings.value("sms_sender", ""))
+            self.enable_sms_checkbox.setChecked(self.settings.value("enable_sms", False, type=bool))
 
         except Exception as e:
             logger.error(f"Błąd podczas ładowania ustawień: {e}")
@@ -1226,6 +1798,10 @@ class SettingsTab(QWidget):
             self.settings.setValue("smtp_server", self.smtp_server_input.text())
             self.settings.setValue("smtp_port", self.smtp_port_spin.value())
             self.settings.setValue("use_ssl", self.use_ssl_checkbox.isChecked())
+            # Dodaj następujące linie do sekcji ustawień komunikacji
+            self.settings.setValue("sms_api_key", self.sms_api_key_input.text())
+            self.settings.setValue("sms_sender", self.sms_sender_input.text())
+            self.settings.setValue("enable_sms", self.enable_sms_checkbox.isChecked())
 
             # Zapisz szablony
             self.save_templates()
@@ -1248,39 +1824,6 @@ class SettingsTab(QWidget):
                 f"Wystąpił błąd podczas zapisywania ustawień:\n{str(e)}"
             )    
             
-    def on_email_template_changed(self, index):
-        """Obsługuje zmianę szablonu email."""
-        try:
-            template_key = self.email_template_mapping.get(index)
-            if not template_key:
-                # Jeśli nie znaleziono w mapowaniu, użyj nazwy z combobox
-                template_key = self.email_template_combo.currentText()
-                
-            # Ustal, który szablon załadować
-            if template_key == "Aktywny depozyt":
-                template_key = "active"
-            elif template_key == "Do odbioru":
-                template_key = "pickup"
-            elif template_key == "Zaległy depozyt":
-                template_key = "overdue"
-            elif template_key == "Ogólny":
-                template_key = "general"
-            
-            # Sprawdź, czy szablon istnieje w wewnętrznej strukturze
-            if "email" in self.templates and template_key in self.templates["email"]:
-                template = self.templates["email"][template_key]
-            else:
-                # Jeśli nie istnieje, użyj domyślnego
-                template = DEFAULT_EMAIL_TEMPLATES.get(template_key, DEFAULT_EMAIL_TEMPLATES["general"])
-            
-            # Ustaw pola formularza
-            self.email_subject_edit.setText(template.get("subject", ""))
-            self.email_body_edit.setPlainText(template.get("body", ""))
-            
-            # Aktualizuj podgląd
-            self.update_email_preview()
-        except Exception as e:
-            logger.error(f"Błąd podczas zmiany szablonu email: {e}")
 
     def on_label_template_changed(self, index):
         """Obsługuje zmianę szablonu etykiety."""
@@ -1330,68 +1873,6 @@ class SettingsTab(QWidget):
         except Exception as e:
             logger.error(f"Błąd podczas zmiany szablonu potwierdzenia: {e}")
             
-    def load_templates(self):
-        """Ładuje szablony z pliku."""
-        try:
-            # Sprawdź, czy plik z szablonami istnieje
-            if os.path.exists(self.templates_file):
-                with open(self.templates_file, 'r', encoding='utf-8') as f:
-                    self.templates = json.load(f)
-            else:
-                # Plik nie istnieje, utwórz z domyślnymi szablonami
-                self.templates = {
-                    "email": DEFAULT_EMAIL_TEMPLATES,
-                    "label": {"default": DEFAULT_LABEL_TEMPLATE},
-                    "receipt": {"default": DEFAULT_RECEIPT_TEMPLATE}
-                }
-                self.save_templates()
-                
-            # Wypełnienie combo boxów z nazwami szablonów
-            self.email_template_mapping = {
-                0: "active",
-                1: "pickup",
-                2: "overdue",
-                3: "general"
-            }
-            
-            # Ładowanie niestandardowych szablonów email
-            for template_name in self.templates.get("email", {}):
-                if template_name not in ["active", "pickup", "overdue", "general"]:
-                    self.email_template_combo.addItem(template_name)
-                    index = self.email_template_combo.count() - 1
-                    self.email_template_mapping[index] = template_name
-            
-            # Ładowanie szablonów etykiet
-            self.label_template_combo.clear()
-            self.label_template_combo.addItem("Domyślny", "default")
-            
-            label_templates = self.templates.get("label", {})
-            for template_name in label_templates:
-                if template_name != "default":
-                    self.label_template_combo.addItem(template_name, template_name)
-            
-            # Ładowanie szablonów potwierdzeń
-            self.receipt_template_combo.clear()
-            self.receipt_template_combo.addItem("Domyślny", "default")
-            
-            receipt_templates = self.templates.get("receipt", {})
-            for template_name in receipt_templates:
-                if template_name != "default":
-                    self.receipt_template_combo.addItem(template_name, template_name)
-            
-            # Ustawienie domyślnych szablonów
-            self.on_email_template_changed(0)
-            self.on_label_template_changed(0)
-            self.on_receipt_template_changed(0)
-            
-        except Exception as e:
-            logger.error(f"Błąd podczas ładowania szablonów: {e}")
-            QMessageBox.critical(
-                self,
-                "Błąd",
-                f"Wystąpił błąd podczas ładowania szablonów:\n{str(e)}"
-            )
-
     def save_templates(self):
         """Zapisuje szablony do pliku."""
         try:
@@ -1487,6 +1968,9 @@ class SettingsTab(QWidget):
             self.smtp_server_input.setText(self.settings.value("smtp_server", ""))
             self.smtp_port_spin.setValue(self.settings.value("smtp_port", 587, type=int))
             self.use_ssl_checkbox.setChecked(self.settings.value("use_ssl", True, type=bool))
+            self.sms_api_key_input.setText(self.settings.value("sms_api_key", ""))
+            self.sms_sender_input.setText(self.settings.value("sms_sender", ""))
+            self.enable_sms_checkbox.setChecked(self.settings.value("enable_sms", False, type=bool))
 
         except Exception as e:
             logger.error(f"Błąd podczas ładowania ustawień: {e}")
@@ -1537,6 +2021,9 @@ class SettingsTab(QWidget):
             self.settings.setValue("smtp_server", self.smtp_server_input.text())
             self.settings.setValue("smtp_port", self.smtp_port_spin.value())
             self.settings.setValue("use_ssl", self.use_ssl_checkbox.isChecked())
+            self.settings.setValue("sms_api_key", self.sms_api_key_input.text())
+            self.settings.setValue("sms_sender", self.sms_sender_input.text())
+            self.settings.setValue("enable_sms", self.enable_sms_checkbox.isChecked())
 
             # Zapisz szablony
             self.save_templates()
@@ -1774,17 +2261,32 @@ class SettingsTab(QWidget):
             if reply == QMessageBox.Yes:
                 # Usuń szablon
                 template_key = self.email_template_mapping.get(index, template_name)
-                if template_key in self.templates.get("email", {}):
-                    del self.templates["email"][template_key]
-                
-                # Usuń z listy
-                self.email_template_combo.removeItem(index)
-                
-                # Zapisz zmiany
-                self.save_templates()
-                
-                # Ustaw domyślny szablon
-                self.email_template_combo.setCurrentIndex(0)
+
+                # Ustal, który szablon załadować (zachowajmy tę logikę dla kompatybilności wstecz)
+                if template_key == "Aktywny depozyt":
+                    old_key = "active"
+                elif template_key == "Do odbioru":
+                    old_key = "pickup"
+                elif template_key == "Zaległy depozyt":
+                    old_key = "overdue"
+                elif template_key == "Ogólny":
+                    old_key = "general"
+                else:
+                    old_key = None
+
+                # Sprawdź, czy istnieje stary klucz dla kompatybilności wstecz
+                if old_key and "email" in self.templates and old_key in self.templates["email"]:
+                    # Kopiuj stary szablon do nowego klucza, jeśli nie istnieje
+                    if template_key not in self.templates["email"]:
+                        self.templates["email"][template_key] = self.templates["email"][old_key]
+                    template = self.templates["email"][template_key]
+                else:
+                    # Sprawdź, czy szablon istnieje w wewnętrznej strukturze pod nowym kluczem
+                    if "email" in self.templates and template_key in self.templates["email"]:
+                        template = self.templates["email"][template_key]
+                    else:
+                        # Jeśli nie istnieje, użyj domyślnego
+                        template = DEFAULT_EMAIL_TEMPLATES.get("general", {"subject": "", "body": ""})
         except Exception as e:
             logger.error(f"Błąd podczas usuwania szablonu email: {e}")
             QMessageBox.critical(
@@ -2101,12 +2603,17 @@ class SettingsTab(QWidget):
         self.receipt_tab = QWidget()
         templates_tabs.addTab(self.receipt_tab, "Szablony Potwierdzeń")
         
+        # Zakładka szablonów SMS
+        self.sms_tab = QWidget()
+        templates_tabs.addTab(self.sms_tab, "Szablony SMS")
+
         layout.addWidget(templates_tabs)
         
         # Konfiguracja zakładek
         self.setup_email_tab()
         self.setup_label_tab()
         self.setup_receipt_tab()
+        self.setup_sms_tab()  # Upewnij się, że ta linia jest zawsze obecna
         
     def setup_email_tab(self):
         """Konfiguracja zakładki szablonów email."""
@@ -2119,7 +2626,9 @@ class SettingsTab(QWidget):
         
         self.email_template_combo = QComboBox()
         self.email_template_combo.setMinimumWidth(250)
+        # Dodaj standardowe szablony
         self.email_template_combo.addItems(["Aktywny depozyt", "Do odbioru", "Zaległy depozyt", "Ogólny"])
+        self.email_template_combo.addItems(["Zamówienie - Nowe", "Zamówienie - W realizacji", "Zamówienie - Zakończone"])
         self.email_template_combo.currentIndexChanged.connect(self.on_email_template_changed)
         select_layout.addWidget(self.email_template_combo)
         
@@ -2171,6 +2680,14 @@ class SettingsTab(QWidget):
         
         variables_label = QLabel(
             "Możesz użyć następujących zmiennych w szablonie email:\n"
+            "Zmienne wspólne:\n"
+            "{company_name} - Nazwa firmy\n"
+            "{company_address} - Adres firmy\n"
+            "{company_phone} - Telefon firmy\n"
+            "{company_email} - Email firmy\n"
+            "{company_website} - Strona firmy\n"
+            "{current_date} - Aktualna data\n\n"
+            "Dla depozytów opon:\n"
             "{deposit_id} - ID depozytu\n"
             "{client_name} - Nazwa klienta\n"
             "{phone_number} - Telefon klienta\n"
@@ -2180,13 +2697,16 @@ class SettingsTab(QWidget):
             "{quantity} - Ilość opon\n"
             "{deposit_date} - Data przyjęcia\n"
             "{pickup_date} - Planowana data odbioru\n"
-            "{status} - Status depozytu\n"
-            "{current_date} - Aktualna data\n"
-            "{company_name} - Nazwa firmy\n"
-            "{company_address} - Adres firmy\n"
-            "{company_phone} - Telefon firmy\n"
-            "{company_email} - Email firmy\n"
-            "{company_website} - Strona firmy"
+            "{status} - Status depozytu\n\n"
+            "Dla zamówień:\n"
+            "{order_id} - ID zamówienia\n"
+            "{client_name} - Nazwa klienta\n"
+            "{client_email} - Email klienta\n"
+            "{order_date} - Data zamówienia\n"
+            "{status} - Status zamówienia\n"
+            "{total_amount} - Kwota całkowita\n"
+            "{notes} - Uwagi\n"
+            "{items_table} - Tabela pozycji zamówienia"
         )
         variables_label.setStyleSheet("font-family: monospace;")
         variables_layout.addWidget(variables_label)
@@ -2417,13 +2937,168 @@ class SettingsTab(QWidget):
                 template_key = "overdue"
             elif template_key == "Ogólny":
                 template_key = "general"
+            elif template_key == "Zamówienie - Nowe":
+                template_key = "order_nowe"
+            elif template_key == "Zamówienie - W realizacji":
+                template_key = "order_w_realizacji"
+            elif template_key == "Zamówienie - Zakończone":
+                template_key = "order_zakończone"
             
             # Sprawdź, czy szablon istnieje w wewnętrznej strukturze
             if "email" in self.templates and template_key in self.templates["email"]:
                 template = self.templates["email"][template_key]
             else:
                 # Jeśli nie istnieje, użyj domyślnego
-                template = DEFAULT_EMAIL_TEMPLATES.get(template_key, DEFAULT_EMAIL_TEMPLATES["general"])
+                if template_key.startswith("order_"):
+                    default_order_templates = {
+                        "order_nowe": {
+                            "subject": "Nowe zamówienie {order_id}",
+                            "body": """
+                            <html>
+                            <head>
+                                <style>
+                                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                                    h1 { color: #4dabf7; }
+                                    .header { border-bottom: 2px solid #4dabf7; padding-bottom: 10px; }
+                                    .footer { margin-top: 30px; font-size: 12px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }
+                                    .order-details { margin: 20px 0; padding: 10px; background-color: #f9f9f9; border-radius: 5px; }
+                                </style>
+                            </head>
+                            <body>
+                                <div class="container">
+                                    <div class="header">
+                                        <h1>Nowe zamówienie {order_id}</h1>
+                                    </div>
+                                    
+                                    <p>Witaj {client_name},</p>
+                                    
+                                    <p>Dziękujemy za złożenie zamówienia. Poniżej znajdziesz szczegóły:</p>
+                                    
+                                    <div class="order-details">
+                                        <p><strong>Data zamówienia:</strong> {order_date}<br>
+                                        <strong>Status:</strong> Nowe<br>
+                                        <strong>Kwota całkowita:</strong> {total_amount}</p>
+                                        
+                                        <h3>Pozycje zamówienia:</h3>
+                                        {items_table}
+                                    </div>
+                                    
+                                    <p>Potwierdzamy przyjęcie Twojego zamówienia. O zmianie statusu będziemy informować Cię na bieżąco.</p>
+                                    
+                                    <div class="footer">
+                                        <p>Z poważaniem,<br>
+                                        Zespół {company_name}<br>
+                                        {company_address}<br>
+                                        Tel: {company_phone}<br>
+                                        Email: {company_email}<br>
+                                        {company_website}</p>
+                                    </div>
+                                </div>
+                            </body>
+                            </html>
+                            """
+                        },
+                        "order_w_realizacji": {
+                            "subject": "Zamówienie {order_id} w realizacji",
+                            "body": """
+                            <html>
+                            <head>
+                                <style>
+                                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                                    h1 { color: #fcc419; }
+                                    .header { border-bottom: 2px solid #fcc419; padding-bottom: 10px; }
+                                    .footer { margin-top: 30px; font-size: 12px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }
+                                    .order-details { margin: 20px 0; padding: 10px; background-color: #f9f9f9; border-radius: 5px; }
+                                </style>
+                            </head>
+                            <body>
+                                <div class="container">
+                                    <div class="header">
+                                        <h1>Zamówienie {order_id} w realizacji</h1>
+                                    </div>
+                                    
+                                    <p>Witaj {client_name},</p>
+                                    
+                                    <p>Informujemy, że Twoje zamówienie jest obecnie w trakcie realizacji.</p>
+                                    
+                                    <div class="order-details">
+                                        <p><strong>Data zamówienia:</strong> {order_date}<br>
+                                        <strong>Status:</strong> W realizacji<br>
+                                        <strong>Kwota całkowita:</strong> {total_amount}</p>
+                                        
+                                        <h3>Pozycje zamówienia:</h3>
+                                        {items_table}
+                                    </div>
+                                    
+                                    <p>Pracujemy nad realizacją Twojego zamówienia. O zmianie statusu poinformujemy Cię mailowo.</p>
+                                    
+                                    <div class="footer">
+                                        <p>Z poważaniem,<br>
+                                        Zespół {company_name}<br>
+                                        {company_address}<br>
+                                        Tel: {company_phone}<br>
+                                        Email: {company_email}<br>
+                                        {company_website}</p>
+                                    </div>
+                                </div>
+                            </body>
+                            </html>
+                            """
+                        },
+                        "order_zakończone": {
+                            "subject": "Zamówienie {order_id} zrealizowane",
+                            "body": """
+                            <html>
+                            <head>
+                                <style>
+                                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                                    h1 { color: #51cf66; }
+                                    .header { border-bottom: 2px solid #51cf66; padding-bottom: 10px; }
+                                    .footer { margin-top: 30px; font-size: 12px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }
+                                    .order-details { margin: 20px 0; padding: 10px; background-color: #f9f9f9; border-radius: 5px; }
+                                </style>
+                            </head>
+                            <body>
+                                <div class="container">
+                                    <div class="header">
+                                        <h1>Zamówienie {order_id} zrealizowane</h1>
+                                    </div>
+                                    
+                                    <p>Witaj {client_name},</p>
+                                    
+                                    <p>Z przyjemnością informujemy, że Twoje zamówienie zostało zrealizowane.</p>
+                                    
+                                    <div class="order-details">
+                                        <p><strong>Data zamówienia:</strong> {order_date}<br>
+                                        <strong>Status:</strong> Zakończone<br>
+                                        <strong>Kwota całkowita:</strong> {total_amount}</p>
+                                        
+                                        <h3>Pozycje zamówienia:</h3>
+                                        {items_table}
+                                    </div>
+                                    
+                                    <p>Dziękujemy za skorzystanie z naszych usług. Mamy nadzieję, że jesteś zadowolony z realizacji zamówienia.</p>
+                                    
+                                    <div class="footer">
+                                        <p>Z poważaniem,<br>
+                                        Zespół {company_name}<br>
+                                        {company_address}<br>
+                                        Tel: {company_phone}<br>
+                                        Email: {company_email}<br>
+                                        {company_website}</p>
+                                    </div>
+                                </div>
+                            </body>
+                            </html>
+                            """
+                        }
+                    }
+                    template = default_order_templates.get(template_key, DEFAULT_EMAIL_TEMPLATES["general"])
+                else:
+                    template = DEFAULT_EMAIL_TEMPLATES.get(template_key, DEFAULT_EMAIL_TEMPLATES["general"])
             
             # Ustaw pola formularza
             self.email_subject_edit.setText(template.get("subject", ""))
@@ -3066,67 +3741,6 @@ class SettingsTab(QWidget):
                 f"Wystąpił błąd podczas resetowania szablonu:\n{str(e)}"
             )
 
-    def load_templates(self):
-        """Ładuje szablony z pliku."""
-        try:
-            # Sprawdź, czy plik z szablonami istnieje
-            if os.path.exists(self.templates_file):
-                with open(self.templates_file, 'r', encoding='utf-8') as f:
-                    self.templates = json.load(f)
-            else:
-                # Plik nie istnieje, utwórz z domyślnymi szablonami
-                self.templates = {
-                    "email": DEFAULT_EMAIL_TEMPLATES,
-                    "label": {"default": DEFAULT_LABEL_TEMPLATE},
-                    "receipt": {"default": DEFAULT_RECEIPT_TEMPLATE}
-                }
-                self.save_templates()
-                
-            # Wypełnienie combo boxów z nazwami szablonów
-            self.email_template_mapping = {
-                0: "active",
-                1: "pickup",
-                2: "overdue",
-                3: "general"
-            }
-            
-            # Ładowanie niestandardowych szablonów email
-            for template_name in self.templates.get("email", {}):
-                if template_name not in ["active", "pickup", "overdue", "general"]:
-                    self.email_template_combo.addItem(template_name)
-                    index = self.email_template_combo.count() - 1
-                    self.email_template_mapping[index] = template_name
-            
-            # Ładowanie szablonów etykiet
-            self.label_template_combo.clear()
-            self.label_template_combo.addItem("Domyślny", "default")
-            
-            label_templates = self.templates.get("label", {})
-            for template_name in label_templates:
-                if template_name != "default":
-                    self.label_template_combo.addItem(template_name, template_name)
-            
-            # Ładowanie szablonów potwierdzeń
-            self.receipt_template_combo.clear()
-            self.receipt_template_combo.addItem("Domyślny", "default")
-            
-            receipt_templates = self.templates.get("receipt", {})
-            for template_name in receipt_templates:
-                if template_name != "default":
-                    self.receipt_template_combo.addItem(template_name, template_name)
-            
-            # Ustawienie domyślnych szablonów
-            self.on_email_template_changed(0)
-            self.on_label_template_changed(0)
-            self.on_receipt_template_changed(0)
-            
-        except Exception as e:
-            logger.error(f"Błąd podczas ładowania szablonów: {e}")
-            QMessageBox.critical(
-                self,
-                "Błąd",
-                f"Wystąpił błąd podczas ładowania szablonów:\n{str(e)}"
-            )
 
     def save_templates(self):
         """Zapisuje szablony do pliku."""
@@ -3143,4 +3757,1010 @@ class SettingsTab(QWidget):
                 self,
                 "Błąd",
                 f"Wystąpił błąd podczas zapisywania szablonów:\n{str(e)}"
+            )
+
+    def setup_sms_tab(self):
+        """Konfiguracja zakładki szablonów SMS."""
+        layout = QVBoxLayout(self.sms_tab)
+        layout.setSpacing(15)
+        
+        # Zakładki dla różnych typów SMS
+        sms_category_tabs = QTabWidget()
+        
+        # Utwórz zakładki dla każdej kategorii SMS
+        self.deposits_sms_tab = QWidget()
+        self.orders_sms_tab = QWidget()
+        self.service_sms_tab = QWidget()
+        
+        sms_category_tabs.addTab(self.deposits_sms_tab, "Depozyty")
+        sms_category_tabs.addTab(self.orders_sms_tab, "Zamówienia")
+        sms_category_tabs.addTab(self.service_sms_tab, "Zlecenia")
+        
+        layout.addWidget(sms_category_tabs)
+        
+        # Skonfiguruj każdą z zakładek
+        self.setup_deposits_sms_tab()
+        self.setup_orders_sms_tab()
+        self.setup_service_sms_tab()
+
+    def setup_deposits_sms_tab(self):
+        """Konfiguracja zakładki szablonów SMS dla depozytów."""
+        layout = QVBoxLayout(self.deposits_sms_tab)
+        layout.setSpacing(15)
+        
+        # Wybór szablonu
+        select_layout = QHBoxLayout()
+        select_layout.addWidget(QLabel("Wybierz szablon:"))
+        
+        self.deposit_sms_template_combo = QComboBox()
+        self.deposit_sms_template_combo.setMinimumWidth(250)
+        self.deposit_sms_template_combo.addItems(["Przyjęcie depozytu", "Przypomnienie o odbiorze", "Zaległy depozyt"])
+        self.deposit_sms_template_combo.currentIndexChanged.connect(self.on_deposit_sms_template_changed)
+        select_layout.addWidget(self.deposit_sms_template_combo)
+        
+        # Przyciski dodawania/usuwania szablonów
+        self.add_deposit_sms_template_btn = QPushButton("+")
+        self.add_deposit_sms_template_btn.setToolTip("Dodaj nowy szablon")
+        self.add_deposit_sms_template_btn.setFixedSize(30, 30)
+        self.add_deposit_sms_template_btn.clicked.connect(lambda: self.add_sms_template("deposit"))
+        select_layout.addWidget(self.add_deposit_sms_template_btn)
+        
+        self.remove_deposit_sms_template_btn = QPushButton("-")
+        self.remove_deposit_sms_template_btn.setToolTip("Usuń wybrany szablon")
+        self.remove_deposit_sms_template_btn.setFixedSize(30, 30)
+        self.remove_deposit_sms_template_btn.clicked.connect(lambda: self.remove_sms_template("deposit"))
+        select_layout.addWidget(self.remove_deposit_sms_template_btn)
+        
+        select_layout.addStretch()
+        
+        layout.addLayout(select_layout)
+        
+        # Edytor treści SMS-a
+        self.deposit_sms_content_edit = QTextEdit()
+        self.deposit_sms_content_edit.setMinimumHeight(100)
+        self.deposit_sms_content_edit.setMaximumHeight(150)
+        layout.addWidget(self.deposit_sms_content_edit)
+        
+        # Licznik znaków
+        self.deposit_sms_char_counter = QLabel("0/160 znaków (1 SMS)")
+        self.deposit_sms_char_counter.setAlignment(Qt.AlignRight)
+        layout.addWidget(self.deposit_sms_char_counter)
+        
+        # Aktualizacja licznika znaków przy zmianie treści
+        self.deposit_sms_content_edit.textChanged.connect(lambda: self.update_sms_char_counter("deposit"))
+        
+        # Lista dostępnych zmiennych
+        variables_group = QGroupBox("Dostępne zmienne")
+        variables_layout = QVBoxLayout(variables_group)
+        
+        variables_label = QLabel(
+            "Mozesz uzyc nastepujacych zmiennych w szablonie SMS (bez polskich znakow):\n"
+            "{deposit_id} - ID depozytu\n"
+            "{client_name} - Nazwa klienta\n"
+            "{quantity} - Ilosc opon\n"
+            "{pickup_date} - Data odbioru\n"
+            "{tire_type} - Typ opon\n"
+            "{company_name} - Nazwa firmy\n"
+            "{company_phone} - Telefon firmy"
+        )
+        variables_label.setStyleSheet("font-family: monospace;")
+        variables_layout.addWidget(variables_label)
+        
+        layout.addWidget(variables_group)
+        
+        # Przyciski
+        buttons_layout = QHBoxLayout()
+        
+        reset_btn = QPushButton("Resetuj do domyślnych")
+        reset_btn.clicked.connect(lambda: self.reset_sms_template("deposit"))
+        buttons_layout.addWidget(reset_btn)
+        
+        polish_chars_check_btn = QPushButton("Sprawdź polskie znaki")
+        polish_chars_check_btn.clicked.connect(lambda: self.check_polish_chars("deposit"))
+        buttons_layout.addWidget(polish_chars_check_btn)
+        
+        buttons_layout.addStretch()
+        
+        save_btn = QPushButton("Zapisz zmiany")
+        save_btn.clicked.connect(lambda: self.save_sms_template("deposit"))
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+        """)
+        buttons_layout.addWidget(save_btn)
+        
+        layout.addLayout(buttons_layout)
+
+    def setup_orders_sms_tab(self):
+        """Konfiguracja zakładki szablonów SMS dla zamówień."""
+        layout = QVBoxLayout(self.orders_sms_tab)
+        layout.setSpacing(15)
+        
+        # Wybór szablonu
+        select_layout = QHBoxLayout()
+        select_layout.addWidget(QLabel("Wybierz szablon:"))
+        
+        self.order_sms_template_combo = QComboBox()
+        self.order_sms_template_combo.setMinimumWidth(250)
+        self.order_sms_template_combo.addItems(["Nowe zamówienie", "Zamówienie w realizacji", "Zamówienie zrealizowane"])
+        self.order_sms_template_combo.currentIndexChanged.connect(self.on_order_sms_template_changed)
+        select_layout.addWidget(self.order_sms_template_combo)
+        
+        # Przyciski dodawania/usuwania szablonów
+        self.add_order_sms_template_btn = QPushButton("+")
+        self.add_order_sms_template_btn.setToolTip("Dodaj nowy szablon")
+        self.add_order_sms_template_btn.setFixedSize(30, 30)
+        self.add_order_sms_template_btn.clicked.connect(lambda: self.add_sms_template("order"))
+        select_layout.addWidget(self.add_order_sms_template_btn)
+        
+        self.remove_order_sms_template_btn = QPushButton("-")
+        self.remove_order_sms_template_btn.setToolTip("Usuń wybrany szablon")
+        self.remove_order_sms_template_btn.setFixedSize(30, 30)
+        self.remove_order_sms_template_btn.clicked.connect(lambda: self.remove_sms_template("order"))
+        select_layout.addWidget(self.remove_order_sms_template_btn)
+        
+        select_layout.addStretch()
+        
+        layout.addLayout(select_layout)
+        
+        # Edytor treści SMS-a
+        self.order_sms_content_edit = QTextEdit()
+        self.order_sms_content_edit.setMinimumHeight(100)
+        self.order_sms_content_edit.setMaximumHeight(150)
+        layout.addWidget(self.order_sms_content_edit)
+        
+        # Licznik znaków
+        self.order_sms_char_counter = QLabel("0/160 znaków (1 SMS)")
+        self.order_sms_char_counter.setAlignment(Qt.AlignRight)
+        layout.addWidget(self.order_sms_char_counter)
+        
+        # Aktualizacja licznika znaków przy zmianie treści
+        self.order_sms_content_edit.textChanged.connect(lambda: self.update_sms_char_counter("order"))
+        
+        # Lista dostępnych zmiennych
+        variables_group = QGroupBox("Dostępne zmienne")
+        variables_layout = QVBoxLayout(variables_group)
+        
+        variables_label = QLabel(
+            "Mozesz uzyc nastepujacych zmiennych w szablonie SMS (bez polskich znakow):\n"
+            "{order_id} - ID zamowienia\n"
+            "{client_name} - Nazwa klienta\n"
+            "{status} - Status zamowienia\n"
+            "{amount} - Kwota zamowienia\n"
+            "{company_name} - Nazwa firmy\n"
+            "{company_phone} - Telefon firmy"
+        )
+        variables_label.setStyleSheet("font-family: monospace;")
+        variables_layout.addWidget(variables_label)
+        
+        layout.addWidget(variables_group)
+        
+        # Przyciski
+        buttons_layout = QHBoxLayout()
+        
+        reset_btn = QPushButton("Resetuj do domyślnych")
+        reset_btn.clicked.connect(lambda: self.reset_sms_template("order"))
+        buttons_layout.addWidget(reset_btn)
+        
+        polish_chars_check_btn = QPushButton("Sprawdź polskie znaki")
+        polish_chars_check_btn.clicked.connect(lambda: self.check_polish_chars("order"))
+        buttons_layout.addWidget(polish_chars_check_btn)
+        
+        buttons_layout.addStretch()
+        
+        save_btn = QPushButton("Zapisz zmiany")
+        save_btn.clicked.connect(lambda: self.save_sms_template("order"))
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+        """)
+        buttons_layout.addWidget(save_btn)
+        
+        layout.addLayout(buttons_layout)
+
+    def setup_service_sms_tab(self):
+        """Konfiguracja zakładki szablonów SMS dla zleceń."""
+        layout = QVBoxLayout(self.service_sms_tab)
+        layout.setSpacing(15)
+        
+        # Wybór szablonu
+        select_layout = QHBoxLayout()
+        select_layout.addWidget(QLabel("Wybierz szablon:"))
+        
+        self.service_sms_template_combo = QComboBox()
+        self.service_sms_template_combo.setMinimumWidth(250)
+        self.service_sms_template_combo.addItems(["Przyjęcie zlecenia", "Zlecenie w realizacji", "Zlecenie zakończone"])
+        self.service_sms_template_combo.currentIndexChanged.connect(self.on_service_sms_template_changed)
+        select_layout.addWidget(self.service_sms_template_combo)
+        
+        # Przyciski dodawania/usuwania szablonów
+        self.add_service_sms_template_btn = QPushButton("+")
+        self.add_service_sms_template_btn.setToolTip("Dodaj nowy szablon")
+        self.add_service_sms_template_btn.setFixedSize(30, 30)
+        self.add_service_sms_template_btn.clicked.connect(lambda: self.add_sms_template("service"))
+        select_layout.addWidget(self.add_service_sms_template_btn)
+        
+        self.remove_service_sms_template_btn = QPushButton("-")
+        self.remove_service_sms_template_btn.setToolTip("Usuń wybrany szablon")
+        self.remove_service_sms_template_btn.setFixedSize(30, 30)
+        self.remove_service_sms_template_btn.clicked.connect(lambda: self.remove_sms_template("service"))
+        select_layout.addWidget(self.remove_service_sms_template_btn)
+        
+        select_layout.addStretch()
+        
+        layout.addLayout(select_layout)
+        
+        # Edytor treści SMS-a
+        self.service_sms_content_edit = QTextEdit()
+        self.service_sms_content_edit.setMinimumHeight(100)
+        self.service_sms_content_edit.setMaximumHeight(150)
+        layout.addWidget(self.service_sms_content_edit)
+        
+        # Licznik znaków
+        self.service_sms_char_counter = QLabel("0/160 znaków (1 SMS)")
+        self.service_sms_char_counter.setAlignment(Qt.AlignRight)
+        layout.addWidget(self.service_sms_char_counter)
+        
+        # Aktualizacja licznika znaków przy zmianie treści
+        self.service_sms_content_edit.textChanged.connect(lambda: self.update_sms_char_counter("service"))
+        
+        # Lista dostępnych zmiennych
+        variables_group = QGroupBox("Dostępne zmienne")
+        variables_layout = QVBoxLayout(variables_group)
+        
+        variables_label = QLabel(
+            "Mozesz uzyc nastepujacych zmiennych w szablonie SMS (bez polskich znakow):\n"
+            "{service_id} - ID zlecenia\n"
+            "{client_name} - Nazwa klienta\n"
+            "{vehicle} - Pojazd\n"
+            "{status} - Status zlecenia\n"
+            "{ready_date} - Data zakonczenia\n"
+            "{amount} - Kwota zlecenia\n"
+            "{company_name} - Nazwa firmy\n"
+            "{company_phone} - Telefon firmy"
+        )
+        variables_label.setStyleSheet("font-family: monospace;")
+        variables_layout.addWidget(variables_label)
+        
+        layout.addWidget(variables_group)
+        
+        # Przyciski
+        buttons_layout = QHBoxLayout()
+        
+        reset_btn = QPushButton("Resetuj do domyślnych")
+        reset_btn.clicked.connect(lambda: self.reset_sms_template("service"))
+        buttons_layout.addWidget(reset_btn)
+        
+        polish_chars_check_btn = QPushButton("Sprawdź polskie znaki")
+        polish_chars_check_btn.clicked.connect(lambda: self.check_polish_chars("service"))
+        buttons_layout.addWidget(polish_chars_check_btn)
+        
+        buttons_layout.addStretch()
+        
+        save_btn = QPushButton("Zapisz zmiany")
+        save_btn.clicked.connect(lambda: self.save_sms_template("service"))
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #28a745;
+                color: white;
+                font-weight: bold;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #218838;
+            }
+        """)
+        buttons_layout.addWidget(save_btn)
+        
+        layout.addLayout(buttons_layout)
+
+    def on_deposit_sms_template_changed(self, index):
+        """Obsługuje zmianę szablonu SMS dla depozytów."""
+        try:
+            template_name = self.deposit_sms_template_combo.currentText()
+            
+            # Domyślne szablony
+            default_templates = {
+                "Przyjęcie depozytu": "Dziekujemy za skorzystanie z naszych uslug. Przyjeto depozyt {deposit_id}. Ilosc opon: {quantity}. Odbior: {pickup_date}. {company_name}",
+                "Przypomnienie o odbiorze": "Przypominamy o odbiorze depozytu {deposit_id}. Opony czekaja na odbior. W razie pytan prosimy o kontakt: {company_phone}. {company_name}",
+                "Zaległy depozyt": "Depozyt {deposit_id} zalega w naszym magazynie. Prosimy o pilny kontakt: {company_phone}. {company_name}"
+            }
+            
+            # Sprawdź, czy szablon istnieje w wewnętrznej strukturze
+            template_content = ""
+            if "sms_deposit" in self.templates and template_name in self.templates["sms_deposit"]:
+                template_content = self.templates["sms_deposit"][template_name]
+            else:
+                # Jeśli nie istnieje, użyj domyślnego
+                template_content = default_templates.get(template_name, "")
+            
+            # Ustaw pola formularza
+            self.deposit_sms_content_edit.setPlainText(template_content)
+            
+            # Aktualizuj licznik znaków
+            self.update_sms_char_counter("deposit")
+            
+        except Exception as e:
+            logger.error(f"Błąd podczas zmiany szablonu SMS depozytu: {e}")
+
+    def on_order_sms_template_changed(self, index):
+        """Obsługuje zmianę szablonu SMS dla zamówień."""
+        try:
+            template_name = self.order_sms_template_combo.currentText()
+            
+            # Domyślne szablony
+            default_templates = {
+                "Nowe zamówienie": "Dziekujemy za zlozenie zamowienia {order_id}. Kwota: {amount} zl. O zmianach statusu bedziemy informowac. {company_name}",
+                "Zamówienie w realizacji": "Zamowienie {order_id} jest w trakcie realizacji. W razie pytan prosimy o kontakt: {company_phone}. {company_name}",
+                "Zamówienie zrealizowane": "Zamowienie {order_id} zostalo zrealizowane. Zapraszamy do odbioru. {company_name}, tel. {company_phone}"
+            }
+            
+            # Sprawdź, czy szablon istnieje w wewnętrznej strukturze
+            template_content = ""
+            if "sms_order" in self.templates and template_name in self.templates["sms_order"]:
+                template_content = self.templates["sms_order"][template_name]
+            else:
+                # Jeśli nie istnieje, użyj domyślnego
+                template_content = default_templates.get(template_name, "")
+            
+            # Ustaw pola formularza
+            self.order_sms_content_edit.setPlainText(template_content)
+            
+            # Aktualizuj licznik znaków
+            self.update_sms_char_counter("order")
+            
+        except Exception as e:
+            logger.error(f"Błąd podczas zmiany szablonu SMS zamówienia: {e}")
+
+    def on_service_sms_template_changed(self, index):
+        """Obsługuje zmianę szablonu SMS dla zleceń."""
+        try:
+            template_name = self.service_sms_template_combo.currentText()
+            
+            # Domyślne szablony
+            default_templates = {
+                "Przyjęcie zlecenia": "Przyjeto zlecenie {service_id}. Pojazd: {vehicle}. O postepach prac bedziemy informowac. {company_name}, tel. {company_phone}",
+                "Zlecenie w realizacji": "Zlecenie {service_id} dla pojazdu {vehicle} jest w trakcie realizacji. {company_name}",
+                "Zlecenie zakończone": "Zlecenie {service_id} zostalo zakonczone. Pojazd jest gotowy do odbioru. Kwota: {amount} zl. {company_name}"
+            }
+            
+            # Sprawdź, czy szablon istnieje w wewnętrznej strukturze
+            template_content = ""
+            if "sms_service" in self.templates and template_name in self.templates["sms_service"]:
+                template_content = self.templates["sms_service"][template_name]
+            else:
+                # Jeśli nie istnieje, użyj domyślnego
+                template_content = default_templates.get(template_name, "")
+            
+            # Ustaw pola formularza
+            self.service_sms_content_edit.setPlainText(template_content)
+            
+            # Aktualizuj licznik znaków
+            self.update_sms_char_counter("service")
+            
+        except Exception as e:
+            logger.error(f"Błąd podczas zmiany szablonu SMS zlecenia: {e}")
+
+    def update_sms_char_counter(self, template_type):
+        """Aktualizuje licznik znaków dla SMS-a."""
+        try:
+            text = ""
+            counter_label = None
+            
+            if template_type == "deposit":
+                text = self.deposit_sms_content_edit.toPlainText()
+                counter_label = self.deposit_sms_char_counter
+            elif template_type == "order":
+                text = self.order_sms_content_edit.toPlainText()
+                counter_label = self.order_sms_char_counter
+            elif template_type == "service":
+                text = self.service_sms_content_edit.toPlainText()
+                counter_label = self.service_sms_char_counter
+            
+            if not counter_label:
+                return
+                
+            count = len(text)
+            
+            # Oblicz liczbę SMS-ów (standardowy SMS ma 160 znaków)
+            sms_count = (count + 159) // 160  # Zaokrąglenie w górę
+            
+            counter_label.setText(f"{count}/160 znaków ({sms_count} SMS)")
+            
+            # Zmień kolor, jeśli przekroczono limit jednego SMS-a
+            if count > 160:
+                counter_label.setStyleSheet("color: orange;")
+            elif count > 300:  # Ponad 2 SMS-y
+                counter_label.setStyleSheet("color: red;")
+            else:
+                counter_label.setStyleSheet("")
+        except Exception as e:
+            logger.error(f"Błąd podczas aktualizacji licznika znaków SMS: {e}")
+
+    def add_sms_template(self, template_type):
+        """Dodaje nowy szablon SMS dla określonego typu."""
+        try:
+            combo_box = None
+            if template_type == "deposit":
+                combo_box = self.deposit_sms_template_combo
+            elif template_type == "order":
+                combo_box = self.order_sms_template_combo
+            elif template_type == "service":
+                combo_box = self.service_sms_template_combo
+                
+            if not combo_box:
+                return
+                
+            name, ok = QInputDialog.getText(
+                self, 
+                f"Nowy szablon SMS ({template_type})", 
+                "Podaj nazwę nowego szablonu:"
+            )
+            
+            if ok and name:
+                # Sprawdź, czy szablon o tej nazwie już istnieje
+                template_dict_key = f"sms_{template_type}"
+                if template_dict_key in self.templates and name in self.templates[template_dict_key]:
+                    QMessageBox.warning(
+                        self, 
+                        "Błąd", 
+                        f"Szablon o nazwie '{name}' już istnieje."
+                    )
+                    return
+                
+                # Dodaj nowy pusty szablon
+                self.templates.setdefault(template_dict_key, {})
+                self.templates[template_dict_key][name] = ""
+                
+                # Dodaj nowy szablon do listy
+                combo_box.addItem(name)
+                
+                # Ustaw nowy szablon jako aktywny
+                index = combo_box.count() - 1
+                combo_box.setCurrentIndex(index)
+                
+                # Zapisz szablony
+                self.save_templates()
+        except Exception as e:
+            logger.error(f"Błąd podczas dodawania szablonu SMS ({template_type}): {e}")
+            QMessageBox.critical(
+                self, 
+                "Błąd", 
+                f"Wystąpił błąd podczas dodawania szablonu:\n{str(e)}"
+            )
+
+    def remove_sms_template(self, template_type):
+        """Usuwa wybrany szablon SMS dla określonego typu."""
+        try:
+            combo_box = None
+            if template_type == "deposit":
+                combo_box = self.deposit_sms_template_combo
+            elif template_type == "order":
+                combo_box = self.order_sms_template_combo
+            elif template_type == "service":
+                combo_box = self.service_sms_template_combo
+                
+            if not combo_box:
+                return
+                
+            # Pobierz bieżący indeks i nazwę szablonu
+            index = combo_box.currentIndex()
+            template_name = combo_box.currentText()
+            
+            # Domyślne szablony dla różnych typów
+            default_templates = {
+                "deposit": ["Przyjęcie depozytu", "Przypomnienie o odbiorze", "Zaległy depozyt"],
+                "order": ["Nowe zamówienie", "Zamówienie w realizacji", "Zamówienie zrealizowane"],
+                "service": ["Przyjęcie zlecenia", "Zlecenie w realizacji", "Zlecenie zakończone"]
+            }
+            
+            # Nie pozwól usunąć domyślnych szablonów
+            if template_name in default_templates.get(template_type, []):
+                QMessageBox.warning(
+                    self, 
+                    "Błąd", 
+                    "Nie można usunąć domyślnych szablonów."
+                )
+                return
+            
+            # Potwierdź usunięcie
+            reply = QMessageBox.question(
+                self, 
+                "Usuń szablon", 
+                f"Czy na pewno chcesz usunąć szablon '{template_name}'?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            
+            if reply == QMessageBox.Yes:
+                # Usuń szablon
+                template_dict_key = f"sms_{template_type}"
+                if template_dict_key in self.templates and template_name in self.templates[template_dict_key]:
+                    del self.templates[template_dict_key][template_name]
+                
+                # Usuń z listy
+                combo_box.removeItem(index)
+                
+                # Zapisz zmiany
+                self.save_templates()
+                
+                # Ustaw domyślny szablon
+                combo_box.setCurrentIndex(0)
+        except Exception as e:
+            logger.error(f"Błąd podczas usuwania szablonu SMS ({template_type}): {e}")
+            QMessageBox.critical(
+                self, 
+                "Błąd", 
+                f"Wystąpił błąd podczas usuwania szablonu:\n{str(e)}"
+            )
+
+    def save_sms_template(self, template_type):
+        """Zapisuje aktualny szablon SMS dla określonego typu."""
+        try:
+            combo_box = None
+            content_edit = None
+            
+            if template_type == "deposit":
+                combo_box = self.deposit_sms_template_combo
+                content_edit = self.deposit_sms_content_edit
+            elif template_type == "order":
+                combo_box = self.order_sms_template_combo
+                content_edit = self.order_sms_content_edit
+            elif template_type == "service":
+                combo_box = self.service_sms_template_combo
+                content_edit = self.service_sms_content_edit
+                
+            if not combo_box or not content_edit:
+                return
+                
+            # Pobierz aktualną nazwę szablonu
+            template_name = combo_box.currentText()
+            
+            # Zaktualizuj szablon
+            template_dict_key = f"sms_{template_type}"
+            self.templates.setdefault(template_dict_key, {})
+            
+            # Sprawdź czy treść nie zawiera polskich znaków
+            content = content_edit.toPlainText()
+            if has_polish_chars(content):
+                reply = QMessageBox.question(
+                    self,
+                    "Polskie znaki",
+                    "Wykryto polskie znaki w treści SMS. SMS z polskimi znakami może być niepoprawnie wyświetlany.\n\n"
+                    "Czy chcesz je zastąpić odpowiednikami bez polskich znaków?",
+                    QMessageBox.Yes | QMessageBox.No
+                )
+                
+                if reply == QMessageBox.Yes:
+                    content = replace_polish_chars(content)
+                    content_edit.setPlainText(content)
+            
+            self.templates[template_dict_key][template_name] = content
+            
+            # Zapisz zmiany
+            self.save_templates()
+            
+            # Powiadomienie
+            QMessageBox.information(
+                self, 
+                "Szablon SMS", 
+                f"Szablon '{template_name}' został zapisany."
+            )
+        except Exception as e:
+            logger.error(f"Błąd podczas zapisywania szablonu SMS ({template_type}): {e}")
+            QMessageBox.critical(
+                self, 
+                "Błąd", 
+                f"Wystąpił błąd podczas zapisywania szablonu:\n{str(e)}"
+            )
+
+    def reset_sms_template(self, template_type):
+        """Resetuje aktualny szablon SMS do domyślnych ustawień dla określonego typu."""
+        try:
+            combo_box = None
+            content_edit = None
+            
+            if template_type == "deposit":
+                combo_box = self.deposit_sms_template_combo
+                content_edit = self.deposit_sms_content_edit
+            elif template_type == "order":
+                combo_box = self.order_sms_template_combo
+                content_edit = self.order_sms_content_edit
+            elif template_type == "service":
+                combo_box = self.service_sms_template_combo
+                content_edit = self.service_sms_content_edit
+                
+            if not combo_box or not content_edit:
+                return
+                
+            template_name = combo_box.currentText()
+            
+            # Domyślne szablony dla różnych typów
+            default_templates = {
+                "deposit": {
+                    "Przyjęcie depozytu": "Dziekujemy za skorzystanie z naszych uslug. Przyjeto depozyt {deposit_id}. Ilosc opon: {quantity}. Odbior: {pickup_date}. {company_name}",
+                    "Przypomnienie o odbiorze": "Przypominamy o odbiorze depozytu {deposit_id}. Opony czekaja na odbior. W razie pytan prosimy o kontakt: {company_phone}. {company_name}",
+                    "Zaległy depozyt": "Depozyt {deposit_id} zalega w naszym magazynie. Prosimy o pilny kontakt: {company_phone}. {company_name}"
+                },
+                "order": {
+                    "Nowe zamówienie": "Dziekujemy za zlozenie zamowienia {order_id}. Kwota: {amount} zl. O zmianach statusu bedziemy informowac. {company_name}",
+                    "Zamówienie w realizacji": "Zamowienie {order_id} jest w trakcie realizacji. W razie pytan prosimy o kontakt: {company_phone}. {company_name}",
+                    "Zamówienie zrealizowane": "Zamowienie {order_id} zostalo zrealizowane. Zapraszamy do odbioru. {company_name}, tel. {company_phone}"
+                },
+                "service": {
+                    "Przyjęcie zlecenia": "Przyjeto zlecenie {service_id}. Pojazd: {vehicle}. O postepach prac bedziemy informowac. {company_name}, tel. {company_phone}",
+                    "Zlecenie w realizacji": "Zlecenie {service_id} dla pojazdu {vehicle} jest w trakcie realizacji. {company_name}",
+                    "Zlecenie zakończone": "Zlecenie {service_id} zostalo zakonczone. Pojazd jest gotowy do odbioru. Kwota: {amount} zl. {company_name}"
+                }
+            }
+            
+            # Sprawdź, czy to domyślny szablon
+            type_templates = default_templates.get(template_type, {})
+            if template_name in type_templates:
+                default_content = type_templates[template_name]
+                
+                # Ustaw domyślny szablon
+                content_edit.setPlainText(default_content)
+                
+                # Zapisz jako bieżący szablon
+                template_dict_key = f"sms_{template_type}"
+                self.templates.setdefault(template_dict_key, {})
+                self.templates[template_dict_key][template_name] = default_content
+                self.save_templates()
+                
+                # Aktualizuj licznik znaków
+                self.update_sms_char_counter(template_type)
+                
+                QMessageBox.information(
+                    self, 
+                    "Reset szablonu", 
+                    f"Szablon '{template_name}' został zresetowany do ustawień domyślnych."
+                )
+            else:
+                QMessageBox.warning(
+                    self, 
+                    "Reset szablonu", 
+                    "Nie można zresetować niestandardowego szablonu."
+                )
+        except Exception as e:
+            logger.error(f"Błąd podczas resetowania szablonu SMS ({template_type}): {e}")
+            QMessageBox.critical(
+                self, 
+                "Błąd", 
+                f"Wystąpił błąd podczas resetowania szablonu:\n{str(e)}"
+            )
+
+    def check_polish_chars(self, template_type):
+        """Sprawdza i sugeruje zastąpienie polskich znaków w szablonie SMS."""
+        try:
+            content_edit = None
+            
+            if template_type == "deposit":
+                content_edit = self.deposit_sms_content_edit
+            elif template_type == "order":
+                content_edit = self.order_sms_content_edit
+            elif template_type == "service":
+                content_edit = self.service_sms_content_edit
+                
+            if not content_edit:
+                return
+                
+            content = content_edit.toPlainText()
+            
+            if has_polish_chars(content):
+                replaced_content = replace_polish_chars(content)
+                
+                msg = QMessageBox()
+                msg.setWindowTitle("Wykryto polskie znaki")
+                msg.setText("Wykryto polskie znaki w treści SMS-a.")
+                msg.setInformativeText("SMS-y nie powinny zawierać polskich znaków. Poniżej znajduje się wersja z zastąpionymi znakami:")
+                msg.setDetailedText(replaced_content)
+                msg.setStandardButtons(QMessageBox.Apply | QMessageBox.Cancel)
+                msg.setDefaultButton(QMessageBox.Apply)
+                
+                if msg.exec_() == QMessageBox.Apply:
+                    content_edit.setPlainText(replaced_content)
+                    QMessageBox.information(
+                        self,
+                        "Polskie znaki",
+                        "Polskie znaki zostały zastąpione."
+                    )
+            else:
+                QMessageBox.information(
+                    self,
+                    "Polskie znaki",
+                    "Nie wykryto polskich znaków w treści SMS-a."
+                )
+        except Exception as e:
+            logger.error(f"Błąd podczas sprawdzania polskich znaków: {e}")
+            QMessageBox.critical(
+                self, 
+                "Błąd", 
+                f"Wystąpił błąd podczas sprawdzania polskich znaków:\n{str(e)}"
+            )
+
+
+    def load_templates(self):
+        """Ładuje szablony z pliku."""
+        try:
+            # Najpierw załaduj szablony z pliku
+            if os.path.exists(self.templates_file):
+                with open(self.templates_file, 'r', encoding='utf-8') as f:
+                    self.templates = json.load(f)
+                    
+                # Migracja starych szablonów SMS do nowego formatu
+                if "sms" in self.templates and isinstance(self.templates["sms"], dict):
+                    # Przenieś stare szablony do odpowiednich kategorii
+                    self.templates.setdefault("sms_order", {})
+                    for key, value in self.templates["sms"].items():
+                        self.templates["sms_order"][key] = value
+            else:
+                # Plik nie istnieje, utwórz z domyślnymi szablonami
+                self.templates = {
+                    "email": DEFAULT_EMAIL_TEMPLATES,
+                    "label": {"default": DEFAULT_LABEL_TEMPLATE},
+                    "receipt": {"default": DEFAULT_RECEIPT_TEMPLATE}
+                }
+                
+                # Dodanie domyślnych szablonów zamówień email
+                default_order_templates = {
+                    "order_nowe": {
+                        "subject": "Nowe zamówienie {order_id}",
+                        "body": """
+                        <html>
+                        <head>
+                            <style>
+                                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                                h1 { color: #4dabf7; }
+                                .header { border-bottom: 2px solid #4dabf7; padding-bottom: 10px; }
+                                .footer { margin-top: 30px; font-size: 12px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }
+                                .order-details { margin: 20px 0; padding: 10px; background-color: #f9f9f9; border-radius: 5px; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="container">
+                                <div class="header">
+                                    <h1>Nowe zamówienie {order_id}</h1>
+                                </div>
+                                
+                                <p>Witaj {client_name},</p>
+                                
+                                <p>Dziękujemy za złożenie zamówienia. Poniżej znajdziesz szczegóły:</p>
+                                
+                                <div class="order-details">
+                                    <p><strong>Data zamówienia:</strong> {order_date}<br>
+                                    <strong>Status:</strong> Nowe<br>
+                                    <strong>Kwota całkowita:</strong> {total_amount}</p>
+                                    
+                                    <h3>Pozycje zamówienia:</h3>
+                                    {items_table}
+                                </div>
+                                
+                                <p>Potwierdzamy przyjęcie Twojego zamówienia. O zmianie statusu będziemy informować Cię na bieżąco.</p>
+                                
+                                <div class="footer">
+                                    <p>Z poważaniem,<br>
+                                    Zespół {company_name}<br>
+                                    {company_address}<br>
+                                    Tel: {company_phone}<br>
+                                    Email: {company_email}<br>
+                                    {company_website}</p>
+                                </div>
+                            </div>
+                        </body>
+                        </html>
+                        """
+                    },
+                    "order_w_realizacji": {
+                        "subject": "Zamówienie {order_id} w realizacji",
+                        "body": """
+                        <html>
+                        <head>
+                            <style>
+                                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                                h1 { color: #fcc419; }
+                                .header { border-bottom: 2px solid #fcc419; padding-bottom: 10px; }
+                                .footer { margin-top: 30px; font-size: 12px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }
+                                .order-details { margin: 20px 0; padding: 10px; background-color: #f9f9f9; border-radius: 5px; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="container">
+                                <div class="header">
+                                    <h1>Zamówienie {order_id} w realizacji</h1>
+                                </div>
+                                
+                                <p>Witaj {client_name},</p>
+                                
+                                <p>Informujemy, że Twoje zamówienie jest obecnie w trakcie realizacji.</p>
+                                
+                                <div class="order-details">
+                                    <p><strong>Data zamówienia:</strong> {order_date}<br>
+                                    <strong>Status:</strong> W realizacji<br>
+                                    <strong>Kwota całkowita:</strong> {total_amount}</p>
+                                    
+                                    <h3>Pozycje zamówienia:</h3>
+                                    {items_table}
+                                </div>
+                                
+                                <p>Pracujemy nad realizacją Twojego zamówienia. O zmianie statusu poinformujemy Cię mailowo.</p>
+                                
+                                <div class="footer">
+                                    <p>Z poważaniem,<br>
+                                    Zespół {company_name}<br>
+                                    {company_address}<br>
+                                    Tel: {company_phone}<br>
+                                    Email: {company_email}<br>
+                                    {company_website}</p>
+                                </div>
+                            </div>
+                        </body>
+                        </html>
+                        """
+                    },
+                    "order_zakończone": {
+                        "subject": "Zamówienie {order_id} zrealizowane",
+                        "body": """
+                        <html>
+                        <head>
+                            <style>
+                                body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                                .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                                h1 { color: #51cf66; }
+                                .header { border-bottom: 2px solid #51cf66; padding-bottom: 10px; }
+                                .footer { margin-top: 30px; font-size: 12px; color: #777; border-top: 1px solid #ddd; padding-top: 10px; }
+                                .order-details { margin: 20px 0; padding: 10px; background-color: #f9f9f9; border-radius: 5px; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="container">
+                                <div class="header">
+                                    <h1>Zamówienie {order_id} zrealizowane</h1>
+                                </div>
+                                
+                                <p>Witaj {client_name},</p>
+                                
+                                <p>Z przyjemnością informujemy, że Twoje zamówienie zostało zrealizowane.</p>
+                                
+                                <div class="order-details">
+                                    <p><strong>Data zamówienia:</strong> {order_date}<br>
+                                    <strong>Status:</strong> Zakończone<br>
+                                    <strong>Kwota całkowita:</strong> {total_amount}</p>
+                                    
+                                    <h3>Pozycje zamówienia:</h3>
+                                    {items_table}
+                                </div>
+                                
+                                <p>Dziękujemy za skorzystanie z naszych usług. Mamy nadzieję, że jesteś zadowolony z realizacji zamówienia.</p>
+                                
+                                <div class="footer">
+                                    <p>Z poważaniem,<br>
+                                    Zespół {company_name}<br>
+                                    {company_address}<br>
+                                    Tel: {company_phone}<br>
+                                    Email: {company_email}<br>
+                                    {company_website}</p>
+                                </div>
+                            </div>
+                        </body>
+                        </html>
+                        """
+                    }
+                }
+                
+                # Dodaj szablony zamówień do domyślnych szablonów
+                self.templates["email"].update(default_order_templates)
+                    
+            # Upewnij się, że istnieją domyślne szablony SMS
+            # Domyślne szablony dla depozytów
+            if "sms_deposit" not in self.templates:
+                self.templates["sms_deposit"] = {
+                    "Przyjęcie depozytu": "Dziekujemy za skorzystanie z naszych uslug. Przyjeto depozyt {deposit_id}. Ilosc opon: {quantity}. Odbior: {pickup_date}. {company_name}",
+                    "Przypomnienie o odbiorze": "Przypominamy o odbiorze depozytu {deposit_id}. Opony czekaja na odbior. W razie pytan prosimy o kontakt: {company_phone}. {company_name}",
+                    "Zaległy depozyt": "Depozyt {deposit_id} zalega w naszym magazynie. Prosimy o pilny kontakt: {company_phone}. {company_name}"
+                }
+            
+            # Domyślne szablony dla zamówień
+            if "sms_order" not in self.templates:
+                self.templates["sms_order"] = {
+                    "Nowe zamówienie": "Dziekujemy za zlozenie zamowienia {order_id}. Kwota: {amount} zl. O zmianach statusu bedziemy informowac. {company_name}",
+                    "Zamówienie w realizacji": "Zamowienie {order_id} jest w trakcie realizacji. W razie pytan prosimy o kontakt: {company_phone}. {company_name}",
+                    "Zamówienie zrealizowane": "Zamowienie {order_id} zostalo zrealizowane. Zapraszamy do odbioru. {company_name}, tel. {company_phone}"
+                }
+            
+            # Domyślne szablony dla zleceń serwisowych
+            if "sms_service" not in self.templates:
+                self.templates["sms_service"] = {
+                    "Przyjęcie zlecenia": "Przyjeto zlecenie {service_id}. Pojazd: {vehicle}. O postepach prac bedziemy informowac. {company_name}, tel. {company_phone}",
+                    "Zlecenie w realizacji": "Zlecenie {service_id} dla pojazdu {vehicle} jest w trakcie realizacji. {company_name}",
+                    "Zlecenie zakończone": "Zlecenie {service_id} zostalo zakonczone. Pojazd jest gotowy do odbioru. Kwota: {amount} zl. {company_name}"
+                }
+            
+            # Zapisz szablony do pliku
+            self.save_templates()
+                
+            # Ładowanie zawartości do interfejsu tylko jeśli odpowiednie komponenty już istnieją
+            if hasattr(self, 'email_template_combo'):
+                # Wypełnienie combo boxów z nazwami szablonów email
+                self.email_template_mapping = {
+                    0: "Aktywny depozyt",
+                    1: "Do odbioru",
+                    2: "Zaległy depozyt",
+                    3: "Ogólny",
+                    4: "Zamówienie - Nowe",
+                    5: "Zamówienie - W realizacji", 
+                    6: "Zamówienie - Zakończone"
+                }
+                
+                # Ładowanie niestandardowych szablonów email
+                for template_name in self.templates.get("email", {}):
+                    if template_name not in ["active", "pickup", "overdue", "general", "order_nowe", "order_w_realizacji", "order_zakończone"]:
+                        self.email_template_combo.addItem(template_name)
+                        index = self.email_template_combo.count() - 1
+                        self.email_template_mapping[index] = template_name
+            
+            # Ładowanie szablonów etykiet
+            if hasattr(self, 'label_template_combo'):
+                self.label_template_combo.clear()
+                self.label_template_combo.addItem("Domyślny", "default")
+                
+                label_templates = self.templates.get("label", {})
+                for template_name in label_templates:
+                    if template_name != "default":
+                        self.label_template_combo.addItem(template_name, template_name)
+            
+            # Ładowanie szablonów potwierdzeń
+            if hasattr(self, 'receipt_template_combo'):
+                self.receipt_template_combo.clear()
+                self.receipt_template_combo.addItem("Domyślny", "default")
+                
+                receipt_templates = self.templates.get("receipt", {})
+                for template_name in receipt_templates:
+                    if template_name != "default":
+                        self.receipt_template_combo.addItem(template_name, template_name)
+            
+            # Ustawienie domyślnych szablonów tylko jeśli odpowiednie metody istnieją
+            if hasattr(self, 'on_email_template_changed'):
+                self.on_email_template_changed(0)
+            
+            if hasattr(self, 'on_label_template_changed'):
+                self.on_label_template_changed(0)
+            
+            if hasattr(self, 'on_receipt_template_changed'):
+                self.on_receipt_template_changed(0)
+            
+            # Załaduj szablony SMS tylko jeśli odpowiednie komponenty zostały zainicjalizowane
+            if hasattr(self, 'deposit_sms_template_combo') and hasattr(self, 'on_deposit_sms_template_changed'):
+                self.on_deposit_sms_template_changed(0)
+                
+            if hasattr(self, 'order_sms_template_combo') and hasattr(self, 'on_order_sms_template_changed'):
+                self.on_order_sms_template_changed(0)
+                
+            if hasattr(self, 'service_sms_template_combo') and hasattr(self, 'on_service_sms_template_changed'):
+                self.on_service_sms_template_changed(0)
+                
+        except Exception as e:
+            logger.error(f"Błąd podczas ładowania szablonów: {e}")
+            QMessageBox.critical(
+                self,
+                "Błąd",
+                f"Wystąpił błąd podczas ładowania szablonów:\n{str(e)}"
             )

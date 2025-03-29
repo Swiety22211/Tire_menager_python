@@ -2355,9 +2355,10 @@ class ClientsTab(QWidget):
             client_id (int): ID klienta
             client_name (str): Nazwa klienta
         """
-        # Tutaj otwieramy dialog dodawania pojazdu
-        from PySide6.QtWidgets import QDialog
         try:
+            # Bezpośredni import wewnątrz metody
+            from ui.dialogs.vehicle_dialog import VehicleDialog
+            
             dialog = VehicleDialog(self.conn, client_id=client_id, parent=self)
             if dialog.exec() == QDialog.Accepted:
                 # Odśwież listę klientów, aby pokazać nowy pojazd
@@ -2385,8 +2386,9 @@ class ClientsTab(QWidget):
             client_id (int): ID klienta
             client_name (str): Nazwa klienta
         """
-        from PySide6.QtWidgets import QDialog
         try:
+            # Bezpośredni import wewnątrz metody
+            from ui.dialogs.vehicle_dialog import VehicleDialog
             # Sprawdzenie, czy dialog VehicleDialog przyjmuje parametr vehicle_id
             import inspect
             vehicle_dialog_params = inspect.signature(VehicleDialog.__init__).parameters

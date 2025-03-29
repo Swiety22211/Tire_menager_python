@@ -29,6 +29,7 @@ from utils.paths import ICONS_DIR, APP_DATA_DIR, DATABASE_PATH, BACKUP_DIR, reso
 from ui.tabs.deposits_tab import DepositsTab
 from ui.tabs.inventory_tab import InventoryTab
 from ui.tabs.finances_tab import FinancesTab
+from ui.tabs.pricelist_tab import PriceListTab
 
 # Dodaj nową stałą dla katalogu images
 IMAGES_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "resources", "images")
@@ -304,7 +305,7 @@ class MainWindow(QMainWindow):
         self.content_stack.addWidget(self.finances_tab)
 
         # Pozostałe moduły - placeholdery
-        modules = [ "pricelist"]
+        modules = []  # Usuń "pricelist" z tej listy, bo teraz mamy prawdziwy moduł
         for module in modules:
             placeholder = QWidget()
             layout = QVBoxLayout(placeholder)
@@ -312,6 +313,10 @@ class MainWindow(QMainWindow):
             label.setAlignment(Qt.AlignCenter)
             layout.addWidget(label)
             self.content_stack.addWidget(placeholder)
+
+        # Moduł Cennik
+        self.pricelist_tab = PriceListTab(self.conn)
+        self.content_stack.addWidget(self.pricelist_tab)
         
         # Moduł Ustawienia
         self.settings_tab = SettingsTab()
@@ -534,11 +539,24 @@ class MainWindow(QMainWindow):
         self.update_time()
         
         parent_layout.addWidget(footer_frame)
-    
+
+    # Powiadomienia
     def init_notification_system(self):
         """Inicjalizacja systemu powiadomień."""
+        from ui.notifications import NotificationManager, NotificationTypes
+        
+        # Pobierz instancję menedżera powiadomień
         self.notification_manager = NotificationManager.get_instance()
+        
+        # Ustaw główne okno jako rodzica dla powiadomień
         self.notification_manager.set_parent(self)
+        
+        # Testowe powiadomienie (można usunąć w produkcji)
+        QTimer.singleShot(1000, lambda: self.notification_manager.show_notification(
+            "Aplikacja Menadżer Serwisu Opon została uruchomiona!", 
+            NotificationTypes.SUCCESS, 
+            duration=5000
+        ))
     
     def setup_window(self):
         """Konfiguracja okna głównego."""

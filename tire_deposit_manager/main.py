@@ -7,6 +7,15 @@ Obsługuje inicjalizację logowania, połączenie z bazą danych oraz uruchomien
 Zmodernizowana wersja z ciemnym motywem jako domyślnym.
 """
 
+import sys
+print("Ścieżki wyszukiwania Pythona:")
+for path in sys.path:
+    print(path)
+print("\nAktualna ścieżka:")
+import os
+print(os.getcwd())
+
+
 import os
 import sys
 import logging
