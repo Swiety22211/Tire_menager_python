@@ -320,6 +320,32 @@ def initialize_database(conn):
             )
         ''')
         
+        # Tabela logów emaili zamówień
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS order_email_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER,
+                email TEXT,
+                subject TEXT,
+                sent_date TEXT,
+                status TEXT,
+                FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE
+            )
+        ''')
+
+        # Tabela logów SMS zamówień
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS order_sms_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                order_id INTEGER,
+                phone_number TEXT,
+                content TEXT,
+                sent_date TEXT,
+                status TEXT,
+                FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE
+            )
+        ''')
+
         # Zatwierdzenie zmian
         conn.commit()
         

@@ -1334,7 +1334,7 @@ class OrdersTab(QWidget):
     
     def delete_order(self, order_id):
         """
-        Usuwa zamówienie.
+        Usuwa zamówienie wraz ze wszystkimi powiązanymi rekordami.
         
         Args:
             order_id (int): ID zamówienia
@@ -1342,13 +1342,13 @@ class OrdersTab(QWidget):
         try:
             # Potwierdzenie usunięcia
             reply = QMessageBox.question(
-                self, 
-                _("Potwierdź usunięcie"), 
+                self,  # rodzic (self widget)
+                _("Potwierdź usunięcie"),  # tytuł
                 _("Czy na pewno chcesz usunąć zamówienie #{}?\n\n"
                 "Ta operacja usunie również wszystkie powiązane pozycje zamówienia.\n"
-                "Ta operacja jest nieodwracalna.").format(order_id),
-                QMessageBox.Yes | QMessageBox.No,
-                QMessageBox.No
+                "Ta operacja jest nieodwracalna.").format(order_id),  # tekst
+                QMessageBox.Yes | QMessageBox.No,  # standardowe przyciski
+                QMessageBox.No  # domyślny przycisk
             )
             
             if reply == QMessageBox.Yes:
@@ -1357,6 +1357,34 @@ class OrdersTab(QWidget):
                 try:
                     # Rozpocznij transakcję
                     self.conn.execute("BEGIN")
+                    
+                    # Usuń logi emaili związane z zamówieniem
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS order_email_logs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            order_id INTEGER,
+                            email TEXT,
+                            subject TEXT,
+                            sent_date TEXT,
+                            status TEXT,
+                            FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE
+                        )
+                    """)
+                    cursor.execute("DELETE FROM order_email_logs WHERE order_id = ?", (order_id,))
+                    
+                    # Usuń logi SMS związane z zamówieniem
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS order_sms_logs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            order_id INTEGER,
+                            phone_number TEXT,
+                            content TEXT,
+                            sent_date TEXT,
+                            status TEXT,
+                            FOREIGN KEY (order_id) REFERENCES orders (id) ON DELETE CASCADE
+                        )
+                    """)
+                    cursor.execute("DELETE FROM order_sms_logs WHERE order_id = ?", (order_id,))
                     
                     # Usuń powiązane pozycje zamówienia
                     cursor.execute("DELETE FROM order_items WHERE order_id = ?", (order_id,))
@@ -1378,10 +1406,13 @@ class OrdersTab(QWidget):
                     
                     # Emituj sygnał
                     self.order_deleted.emit(order_id)
+                    
                 except Exception as e:
                     # W przypadku błędu, cofnij transakcję
                     self.conn.rollback()
+                    logger.error(f"Błąd podczas usuwania zamówienia (szczegóły): {e}")
                     raise e
+            
         except Exception as e:
             logger.error(f"Błąd podczas usuwania zamówienia: {e}")
             NotificationManager.get_instance().show_notification(
@@ -1838,49 +1869,34 @@ class OrdersTab(QWidget):
                     )
                     return
                 
-                # POPRAWKA: Zmieniono klucze szablonów, żeby odpowiadały nazwom z UI
+                # Ujednolicone mapowanie statusów na klucze szablonów - takie samo jak w order_dialog.py
                 status = order['status']
-                template_keys = []
-                
-                # Precyzyjne mapowanie kluczy dla różnych statusów
-                if status == _("Nowe"):
-                    template_keys = ["Zamówienie - Nowe", "order_nowe"]
-                elif status == _("W realizacji"):
-                    template_keys = ["Zamówienie - W realizacji", "order_w_realizacji"] 
-                elif status == _("Zakończone"):
-                    template_keys = ["Zamówienie - Zakończone", "order_zakończone"]
-                else:
-                    # Dla pozostałych statusów (np. Anulowane) próbujemy różne warianty nazw
-                    template_keys = [
-                        f"Zamówienie - {status}",
-                        f"Zamówienie {status}",
-                        f"order_{status.lower().replace(' ', '_')}"
-                    ]
-                
-                # Dodaj "Ogólny" jako ostatni fallback
-                template_keys.append("Ogólny")
-                template_keys.append("general")  # Zachowaj kompatybilność wstecz
-                
-                template_found = False
-                template_key = None
-                
-                # Szukaj pierwszego pasującego szablonu w hierarchii kluczy
+                status_to_template_key = {
+                    _("Nowe"): "order_nowe",
+                    _("W realizacji"): "order_w_realizacji", 
+                    _("Zakończone"): "order_zakończone",
+                    _("Anulowane"): "order_nowe"  # Domyślnie używaj szablonu nowego zamówienia dla anulowanych
+                }
+
+                # Domyślnie używaj szablonu dla nowych zamówień, jeśli nie znajdziesz szablonu dla danego statusu
+                template_key = status_to_template_key.get(status, "order_nowe")
+                logger.info(f"Używany klucz szablonu dla statusu '{status}': {template_key}")
+
+                # Dodaj kod diagnostyczny do wyświetlenia dostępnych szablonów
                 if "email" in templates:
-                    for key in template_keys:
-                        if key in templates["email"]:
-                            template_key = key
-                            template_found = True
-                            logger.info(f"Znaleziono szablon: {template_key}")
-                            break
+                    available_templates = list(templates["email"].keys())
+                    logger.info(f"Dostępne szablony: {available_templates}")
                 
-                # Jeśli nie znaleziono szablonu, powiadom użytkownika
-                if not template_found:
+                # Sprawdź czy szablon istnieje
+                if "email" not in templates or template_key not in templates["email"]:
                     QMessageBox.warning(
                         self,
                         _("Brak szablonu"),
                         _("Nie znaleziono szablonu email dla wybranego statusu zamówienia. Sprawdź szablony w ustawieniach.")
                     )
                     return
+                    
+                logger.info(f"Znaleziono szablon: {template_key}")
                 
                 # Przygotuj dane do szablonu
                 company_name = settings.value("company_name", "")
@@ -2163,6 +2179,7 @@ class OrdersTab(QWidget):
                 }
                 
                 template_name = status_to_template.get(order['status'], "Nowe zamówienie")
+                logger.info(f"Status zamówienia: '{order['status']}', wybrany szablon SMS: '{template_name}'")
                 
                 if "sms_order" not in templates or template_name not in templates["sms_order"]:
                     # Szablony domyślne, jeśli nie ma zapisanych
@@ -2492,7 +2509,7 @@ class OrdersTab(QWidget):
                 orders_list.addItem(item)
                 item.setCheckState(Qt.Checked)  # Domyślnie zaznaczone
             
-                    # Opcje
+                # Opcje
             options_layout = QHBoxLayout()
             
             select_all_btn = QPushButton(_("Zaznacz wszystkie"))
@@ -2887,6 +2904,14 @@ class OrdersTab(QWidget):
                     # Odśwież widok
                     self.load_orders()
                     
+            send_btn.clicked.connect(send_mass_email)
+            buttons_layout.addWidget(send_btn)
+            
+            layout.addLayout(buttons_layout)
+            
+            # Wyświetl dialog
+            config_dialog.exec()
+        
         except Exception as e:
             logger.error(f"Błąd podczas wysyłania powiadomień email: {e}")
             NotificationManager.get_instance().show_notification(

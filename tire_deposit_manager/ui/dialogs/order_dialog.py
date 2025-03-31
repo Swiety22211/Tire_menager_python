@@ -14,11 +14,11 @@ from PySide6.QtWidgets import (
     QHeaderView, QDateEdit, QMessageBox, QCompleter, QFrame,
     QSpacerItem, QSizePolicy, QToolButton, QGroupBox, QCheckBox,
     QGridLayout, QSpinBox, QDoubleSpinBox, QWidget,
-    QStyledItemDelegate, QStyle
+    QStyledItemDelegate, QStyle, QStyle
 )
 from PySide6.QtGui import (
     QStandardItemModel, QStandardItem, QIntValidator, QDoubleValidator,
-    QIcon, QFont, QColor
+    QIcon, QFont, QColor, QPalette
 )
 from PySide6.QtCore import Qt, QDate, QSize
 
@@ -54,6 +54,7 @@ class OrderDialog(QDialog):
         self.total_amount_label = None
         self.client_info_label = None
         self.send_email_checkbox = None
+        self.send_sms_checkbox = None  # Nowe pole dla powiadamiania SMS
         
         # Ustawienia okna
         self.setWindowTitle("Nowe zamówienie" if not order_id else "Edycja zamówienia")
@@ -289,7 +290,7 @@ class OrderDialog(QDialog):
         self.status_combo.setMinimumHeight(35)
         self.status_combo.setMinimumWidth(150)
         self.status_combo.addItems([
-            "🆕 Nowe", "⏳ W realizacji", "✅ Zakończone", "❌ Anulowane"
+            "Nowe", "W realizacji", "Zakończone", "Anulowane"
         ])
         self.status_combo.setStyleSheet("""
             QComboBox {
@@ -300,20 +301,152 @@ class OrderDialog(QDialog):
                 padding: 5px;
             }
         """)
+
+        # Dodaj niestandardowy delegat do kolorowania elementów w ComboBox
+        class StatusDelegate(QStyledItemDelegate):
+            def paint(self, painter, option, index):
+                text = index.data()
+                if text == "Nowe":
+                    option.palette.setColor(QPalette.Text, QColor("#ffa94d"))  # Pomarańczowy
+                elif text == "W realizacji":
+                    option.palette.setColor(QPalette.Text, QColor("#4dabf7"))  # Niebieski
+                elif text == "Zakończone":
+                    option.palette.setColor(QPalette.Text, QColor("#51cf66"))  # Zielony
+                elif text == "Anulowane":
+                    option.palette.setColor(QPalette.Text, QColor("#fa5252"))  # Czerwony
+                    
+                # Jeśli element jest wybrany, zastosuj kolor tła
+                if option.state & QStyle.State_Selected:
+                    option.palette.setColor(QPalette.Highlight, QColor("#3d3d3d"))
+                    
+                super().paint(painter, option, index)
+                
+        # Ustaw delegata dla ComboBoxa
+        self.status_combo.setItemDelegate(StatusDelegate())
+
         date_status_layout.addWidget(self.status_combo)
         date_status_layout.addStretch(1)  # Dodaj odstęp po prawej stronie
 
         # Dodaj widget do głównego layoutu
         order_info_layout.addWidget(date_status_container, 2, 0, 1, 2)
 
-        # 3. Opcja powiadomienia email
-        email_layout = QHBoxLayout()
+        # 3. Opcje powiadomień (email i SMS)
+        notification_layout = QHBoxLayout()
+        
+        # Container dla checkboxów powiadomień
+        notification_container = QWidget()
+        notification_container.setStyleSheet("background-color: transparent;")
+        notification_layout_inner = QHBoxLayout(notification_container)
+        notification_layout_inner.setContentsMargins(0, 0, 0, 0)
+        notification_layout_inner.setSpacing(15)  # Zwiększony odstęp między checkboxami
+
+        # Email
         self.send_email_checkbox = QCheckBox("📧 Wyślij powiadomienie email")
         self.send_email_checkbox.setChecked(False)
-        email_layout.addWidget(self.send_email_checkbox)
-        email_layout.addStretch()
+        notification_layout_inner.addWidget(self.send_email_checkbox)
 
-        order_info_layout.addLayout(email_layout, 3, 0, 1, 2)  # Zmieniony indeks wiersza
+        # SMS - nowy checkbox
+        self.send_sms_checkbox = QCheckBox("📱 Wyślij powiadomienie SMS")
+        self.send_sms_checkbox.setChecked(False)
+        self.send_sms_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: #ffffff;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                background-color: #2a2a2a;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff9800;  /* Pomarańczowy kolor dla SMS */
+            }
+        """)
+        notification_layout_inner.addWidget(self.send_sms_checkbox)
+
+        # Dodaj odstęp na końcu
+        notification_layout_inner.addStretch()
+
+        # Dodaj container do głównego layoutu powiadomień
+        notification_layout.addWidget(notification_container)
+
+        order_info_layout.addLayout(notification_layout, 3, 0, 1, 2)  # Zachowany indeks wiersza
+        
+        main_layout.addWidget(order_info_group)
+
+# Dodaj niestandardowy delegat do kolorowania elementów w ComboBox
+        class StatusDelegate(QStyledItemDelegate):
+            def paint(self, painter, option, index):
+                text = index.data()
+                if text == "Nowe":
+                    option.palette.setColor(QPalette.Text, QColor("#ffa94d"))  # Pomarańczowy
+                elif text == "W realizacji":
+                    option.palette.setColor(QPalette.Text, QColor("#4dabf7"))  # Niebieski
+                elif text == "Zakończone":
+                    option.palette.setColor(QPalette.Text, QColor("#51cf66"))  # Zielony
+                elif text == "Anulowane":
+                    option.palette.setColor(QPalette.Text, QColor("#fa5252"))  # Czerwony
+                    
+                # Jeśli element jest wybrany, zastosuj kolor tła
+                if option.state & QStyle.State_Selected:
+                    option.palette.setColor(QPalette.Highlight, QColor("#3d3d3d"))
+                    
+                super().paint(painter, option, index)
+                
+        # Ustaw delegata dla ComboBoxa
+        self.status_combo.setItemDelegate(StatusDelegate())
+
+        date_status_layout.addWidget(self.status_combo)
+        date_status_layout.addStretch(1)  # Dodaj odstęp po prawej stronie
+
+        # Dodaj widget do głównego layoutu
+        order_info_layout.addWidget(date_status_container, 2, 0, 1, 2)
+
+        # 3. Opcje powiadomień - email i SMS
+        notification_layout = QHBoxLayout()
+        
+        # Container dla checkboxów powiadomień
+        notification_container = QWidget()
+        notification_container.setStyleSheet("background-color: transparent;")
+        notification_layout_inner = QHBoxLayout(notification_container)
+        notification_layout_inner.setContentsMargins(0, 0, 0, 0)
+        notification_layout_inner.setSpacing(15)  # Zwiększony odstęp między checkboxami
+
+        # Email
+        self.send_email_checkbox = QCheckBox("📧 Wyślij powiadomienie email")
+        self.send_email_checkbox.setChecked(False)
+        notification_layout_inner.addWidget(self.send_email_checkbox)
+
+        # SMS - nowy checkbox
+        self.send_sms_checkbox = QCheckBox("📱 Wyślij powiadomienie SMS")
+        self.send_sms_checkbox.setChecked(False)
+        self.send_sms_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: #ffffff;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border: 1px solid #3a3a3a;
+                border-radius: 4px;
+                background-color: #2a2a2a;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #ff9800;  /* Pomarańczowy kolor dla SMS */
+            }
+        """)
+        notification_layout_inner.addWidget(self.send_sms_checkbox)
+
+        # Dodaj odstęp na końcu
+        notification_layout_inner.addStretch()
+
+        # Dodaj container do głównego layoutu powiadomień
+        notification_layout.addWidget(notification_container)
+
+        order_info_layout.addLayout(notification_layout, 3, 0, 1, 2)  # Zachowany indeks wiersza
 
         main_layout.addWidget(order_info_group)
         
@@ -1384,6 +1517,10 @@ class OrderDialog(QDialog):
             # Wysyłanie powiadomienia email, jeśli zaznaczono opcję
             if self.send_email_checkbox.isChecked():
                 self.send_order_email(self.order_id)
+
+            # Wysyłanie powiadomienia SMS, jeśli zaznaczono opcję
+            if self.send_sms_checkbox.isChecked():
+                self.send_order_sms(self.order_id)
             
             # Powiadomienie o sukcesie
             NotificationManager.get_instance().show_notification(
@@ -1512,17 +1649,27 @@ class OrderDialog(QDialog):
                 with open(templates_file, 'r', encoding='utf-8') as f:
                     templates = json.load(f)
                     
-                # Znajdź odpowiedni szablon dla statusu zamówienia
-                status_key = order['status'].lower().replace(' ', '_')
-                template_key = f"order_{status_key}"
+                # Mapowanie statusów z UI na klucze w ustawieniach
+                status_to_template_key = {
+                    "Nowe": "order_nowe",
+                    "W realizacji": "order_w_realizacji", 
+                    "Zakończone": "order_zakończone",
+                    "Anulowane": "order_nowe"  # Domyślnie używaj szablonu nowego zamówienia dla anulowanych
+                }
+
+                # Użyj mapowania dla znalezienia właściwego klucza szablonu
+                template_key = status_to_template_key.get(order['status'], "order_nowe")
                     
                 # Pobierz szablon
                 email_templates = templates.get("email", {})
-                
+
+                # Dodaj logowanie dla debugowania (opcjonalnie)
+                print(f"Wyszukiwanie szablonu: {template_key}, istnieje: {template_key in email_templates}")
+
                 if template_key in email_templates:
                     template = email_templates[template_key]
-                elif "order_general" in email_templates:
-                    template = email_templates["order_general"]
+                elif "order_nowe" in email_templates:  # Jeśli nie znaleziono, użyj szablonu dla nowych zamówień
+                    template = email_templates["order_nowe"]
                 else:
                     # Domyślny szablon, jeśli nie znaleziono właściwego
                     template = {
@@ -1738,6 +1885,210 @@ class OrderDialog(QDialog):
                 f"Błąd podczas wysyłania powiadomienia email: {e}",
                 NotificationTypes.ERROR
             )  
+
+    def send_order_sms(self, order_id):
+        """Wysyła powiadomienie SMS o zamówieniu."""
+        try:
+            # Importy na górze metody dla jasności
+            from datetime import datetime
+            from utils.paths import CONFIG_DIR
+            import json
+            import os
+            import logging
+            from PySide6.QtCore import QSettings
+            from utils.sms_sender import SMSSender
+
+            # Logger dla dokładniejszego raportowania błędów
+            logger = logging.getLogger("TireDepositManager")
+
+            # Pobierz ustawienia z QSettings
+            settings = QSettings("TireDepositManager", "Settings")
+            
+            # Sprawdź, czy SMS-y są włączone
+            enable_sms = settings.value("enable_sms", False, type=bool)
+            if not enable_sms:
+                logger.info("Wysyłanie SMS jest wyłączone w ustawieniach")
+                NotificationManager.get_instance().show_notification(
+                    "Wysyłanie SMS jest wyłączone w ustawieniach",
+                    NotificationTypes.INFO
+                )
+                return
+
+            # Pobierz dane firmy z ustawień
+            company_name = settings.value("company_name", "Serwis Opon")
+            
+            # Pobierz ustawienia SMS Planet API 
+            sms_api_token = settings.value("sms_api_key", "")
+            sms_sender_id = settings.value("sms_sender", company_name)
+
+            # Sprawdź wymagane dane
+            if not sms_api_token:
+                raise ValueError("Brak konfiguracji SMS Planet API. Przejdź do Ustawienia > Komunikacja.")
+
+            # Upewnij się, że ID nadawcy jest zgodne z wymaganiami SMS Planet
+            if len(sms_sender_id) > 11:
+                sms_sender_id = sms_sender_id[:11]  # Ogranicz do 11 znaków
+
+            cursor = self.conn.cursor()
+            
+            # Pobierz dane zamówienia i klienta
+            cursor.execute("""
+                SELECT o.id, o.order_date, o.status, o.total_amount, o.notes,
+                    c.name as client_name, c.phone as client_phone, c.id as client_id
+                FROM orders o
+                JOIN clients c ON o.client_id = c.id
+                WHERE o.id = ?
+            """, (order_id,))
+            
+            order = cursor.fetchone()
+            
+            if not order:
+                raise ValueError(f"Nie znaleziono zamówienia o ID {order_id}")
+            
+            # Pobierz numer telefonu klienta
+            client_phone = None
+            phone_columns = ['phone_number', 'phone', 'mobile', 'contact_number']
+            
+            # Sprawdź główny numer telefonu
+            if 'client_phone' in order and order['client_phone']:
+                client_phone = order['client_phone']
+            
+            # Jeśli nie znaleziono, szukaj w innych kolumnach
+            if not client_phone:
+                cursor.execute(f"""
+                    SELECT {', '.join(phone_columns)}
+                    FROM clients 
+                    WHERE id = ?
+                """, (order['client_id'],))
+                
+                client_data = cursor.fetchone()
+                if client_data:
+                    for col in phone_columns:
+                        if col in client_data and client_data[col]:
+                            client_phone = client_data[col]
+                            break
+            
+            # Sprawdź poprawność numeru telefonu
+            if not client_phone:
+                raise ValueError(f"Klient {order['client_name']} nie ma podanego numeru telefonu")
+            
+            # Formatowanie daty
+            order_date = datetime.strptime(order['order_date'], "%Y-%m-%d").strftime("%d-%m-%Y")
+            
+            # Przygotowanie domyślnych szablonów SMS
+            status_to_message = {
+                "Nowe": f"Witaj! Twoje zamówienie #{order_id} zostało przyjęte. Kwota: {order['total_amount']:.2f} zł. Dziękujemy! {company_name}",
+                "W realizacji": f"Informujemy, że Twoje zamówienie #{order_id} jest w realizacji. Skontaktujemy się wkrótce. {company_name}",
+                "Zakończone": f"Twoje zamówienie #{order_id} zostało zrealizowane. Zapraszamy do odbioru. Kwota: {order['total_amount']:.2f} zł. {company_name}",
+                "Anulowane": f"Zamówienie #{order_id} zostało anulowane. W razie pytań prosimy o kontakt. {company_name}"
+            }
+            
+            # Domyślna treść SMS
+            sms_text = status_to_message.get(order['status'], 
+                                            f"Aktualizacja zamówienia #{order_id}. Status: {order['status']}. {company_name}")
+            
+            # Próba wczytania niestandardowych szablonów
+            templates_file = os.path.join(CONFIG_DIR, "templates.json")
+            try:
+                if os.path.exists(templates_file):
+                    with open(templates_file, 'r', encoding='utf-8') as f:
+                        templates = json.load(f)
+                    
+                    status_to_template_key = {
+                        "Nowe": "sms_nowe",
+                        "W realizacji": "sms_w_realizacji", 
+                        "Zakończone": "sms_zakończone",
+                        "Anulowane": "sms_anulowane"
+                    }
+                    
+                    sms_templates = templates.get("sms", {})
+                    template_key = status_to_template_key.get(order['status'])
+                    
+                    if template_key and template_key in sms_templates:
+                        sms_text = sms_templates[template_key]
+                        
+                        # Podstawienie zmiennych w szablonie
+                        template_data = {
+                            "order_id": str(order_id),
+                            "client_name": order['client_name'],
+                            "order_date": order_date,
+                            "status": order['status'],
+                            "total_amount": f"{order['total_amount']:.2f}",
+                            "company_name": company_name
+                        }
+                        
+                        for key, value in template_data.items():
+                            sms_text = sms_text.replace("{" + key + "}", str(value))
+            except Exception as template_error:
+                logger.warning(f"Błąd podczas wczytywania szablonu SMS: {template_error}")
+            
+            # Powiadomienie o wysyłce
+            NotificationManager.get_instance().show_notification(
+                f"Wysyłanie powiadomienia SMS do {client_phone}...",
+                NotificationTypes.INFO
+            )
+            
+            # Wysyłka SMS
+            try:
+                sms_sender = SMSSender(token=sms_api_token, sender=sms_sender_id)
+                success, message = sms_sender.send_sms(client_phone, sms_text)
+                
+                if not success:
+                    raise ValueError(f"Błąd wysyłania SMS: {message}")
+                
+                # Powiadomienie o sukcesie
+                NotificationManager.get_instance().show_notification(
+                    f"SMS z powiadomieniem o zamówieniu został wysłany do {client_phone}",
+                    NotificationTypes.SUCCESS
+                )
+                
+                # Zapis logu SMS
+                current_datetime = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                try:
+                    # Stwórz tabelę logów SMS, jeśli nie istnieje
+                    cursor.execute("""
+                        CREATE TABLE IF NOT EXISTS sms_logs (
+                            id INTEGER PRIMARY KEY AUTOINCREMENT,
+                            reference_id INTEGER,
+                            reference_type TEXT,
+                            phone TEXT,
+                            message TEXT,
+                            sent_date TEXT,
+                            status TEXT
+                        )
+                    """)
+                    
+                    cursor.execute("""
+                        INSERT INTO sms_logs 
+                        (reference_id, reference_type, phone, message, sent_date, status) 
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    """, (
+                        order_id, 
+                        "order", 
+                        client_phone, 
+                        sms_text, 
+                        current_datetime, 
+                        "Wysłany"
+                    ))
+                    
+                    self.conn.commit()
+                except Exception as log_error:
+                    logger.error(f"Błąd podczas zapisywania logu SMS: {log_error}")
+                    
+            except Exception as send_error:
+                logger.error(f"Błąd podczas wysyłania SMS: {send_error}")
+                NotificationManager.get_instance().show_notification(
+                    f"Błąd podczas wysyłania powiadomienia SMS: {send_error}",
+                    NotificationTypes.ERROR
+                )
+            
+        except Exception as general_error:
+            logger.error(f"Ogólny błąd w metodzie send_order_sms: {general_error}")
+            NotificationManager.get_instance().show_notification(
+                f"Błąd podczas wysyłania powiadomienia SMS: {general_error}",
+                NotificationTypes.ERROR
+            )
 
 class ComboBoxItemDelegate(QStyledItemDelegate):
     """Niestandardowy delegat dla ComboBox, który ukrywa nagłówki na liście wyboru."""

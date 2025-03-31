@@ -13,10 +13,10 @@ from PySide6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLabel, 
     QLineEdit, QComboBox, QSpinBox, QDoubleSpinBox, 
     QTextEdit, QDialogButtonBox, QDateEdit, QCheckBox,
-    QFileDialog, QFrame, QTabWidget, QPushButton, QMessageBox
+    QFileDialog, QFrame, QTabWidget, QPushButton, QMessageBox, QStyle
 )
 from PySide6.QtCore import Qt, QDate, QSettings
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtGui import QIcon, QPixmap, QPalette
 
 from utils.i18n import _  # Funkcja do obsługi lokalizacji
 from ui.notifications import NotificationManager, NotificationTypes
@@ -262,13 +262,19 @@ class InventoryDialog(QDialog):
             
             self.tire_data = tire
             
+            # Rozdziel brand_model na manufacturer i model
+            brand_model = tire["brand_model"] or ""
+            parts = brand_model.split(' ', 1)
+            manufacturer = parts[0] if parts else ""
+            model = parts[1] if len(parts) > 1 else ""
+            
             # Wypełnij formularz danymi
-            self.manufacturer_input.setText(tire["manufacturer"] or "")
-            self.model_input.setText(tire["model"] or "")
+            self.manufacturer_input.setText(manufacturer)
+            self.model_input.setText(model)
             self.size_input.setText(tire["size"] or "")
             
-            # Ustaw typ z listy wyboru
-            type_index = self.type_combo.findText(tire["type"] or _("Letnie"))
+            # Ustaw typ z listy wyboru (używamy season_type zamiast type)
+            type_index = self.type_combo.findText(tire["season_type"] or _("Letnie"))
             if type_index >= 0:
                 self.type_combo.setCurrentIndex(type_index)
             
@@ -285,33 +291,31 @@ class InventoryDialog(QDialog):
             # Ustaw wartości liczbowe
             self.quantity_spin.setValue(tire["quantity"] or 0)
             self.price_spin.setValue(tire["price"] or 0.0)
-            self.purchase_price_spin.setValue(tire["purchase_price"] or 0.0)
             
-            if tire["bieznik"] is not None:
-                self.bieznik_spin.setValue(tire["bieznik"])
+            # Parsuj informacje z pola notes
+            notes = tire["notes"] or ""
             
-            # Ustaw pozostałe pola
-            self.dot_input.setText(tire["dot"] or "")
-            self.notes_edit.setText(tire["notes"] or "")
-            self.location_input.setText(tire["location"] or "")
-            self.supplier_input.setText(tire["supplier"] or "")
-            self.invoice_input.setText(tire["invoice_number"] or "")
-            self.ean_input.setText(tire["ean_code"] or "")
-            
-            # Ustaw datę przyjęcia
-            if tire["receive_date"]:
+            # Próba wyłuskania dodatkowych informacji z pola notes
+            if "Bieżnik:" in notes:
                 try:
-                    date = QDate.fromString(tire["receive_date"], "yyyy-MM-dd")
-                    if date.isValid():
-                        self.receive_date_edit.setDate(date)
+                    bieznik_text = notes.split("Bieżnik:")[1].split("mm")[0].strip()
+                    self.bieznik_spin.setValue(float(bieznik_text))
+                except:
+                    pass
+                    
+            if "Cena zakupu:" in notes:
+                try:
+                    price_text = notes.split("Cena zakupu:")[1].split("zł")[0].strip()
+                    self.purchase_price_spin.setValue(float(price_text))
                 except:
                     pass
             
-            # Wczytaj zdjęcie, jeśli istnieje
-            if tire["image_path"] and os.path.exists(tire["image_path"]):
-                self.image_path = tire["image_path"]
-                self.set_image(self.image_path)
-                self.remove_image_btn.setEnabled(True)
+            # Pozostałe dane
+            self.dot_input.setText(tire["dot"] or "")
+            self.notes_edit.setText(notes.split("\n\n")[0] if "\n\n" in notes else notes)
+            
+            # Pozostałe informacje
+            # Te dane już nie są przechowywane oddzielnie, więc zostawiamy puste lub domyślne wartości
             
         except Exception as e:
             logger.error(f"Błąd podczas ładowania danych opony: {e}")
@@ -319,6 +323,7 @@ class InventoryDialog(QDialog):
                 f"Błąd podczas ładowania danych opony: {e}",
                 NotificationTypes.ERROR
             )
+
     def save_tire(self):
         """Zapisuje dane opony."""
         try:
@@ -326,28 +331,43 @@ class InventoryDialog(QDialog):
             if not self.validate_form():
                 return
             
-            # Przygotowanie danych
+            # Przygotowanie danych używając nazw kolumn z istniejącej bazy danych
+            manufacturer = self.manufacturer_input.text().strip()
+            model = self.model_input.text().strip()
+            
+            # Połącz producenta i model w jedno pole brand_model
+            brand_model = f"{manufacturer} {model}".strip()
+            
             tire_data = {
-                "manufacturer": self.manufacturer_input.text().strip(),  # Zmień brand_model na manufacturer
-                "model": self.model_input.text().strip(),  # Dodaj model jako osobne pole
+                "brand_model": brand_model,  # Używamy brand_model zamiast manufacturer i model
                 "size": self.size_input.text().strip(),
-                "type": self.type_combo.currentText(),
+                "season_type": self.type_combo.currentText(),  # Używamy season_type zamiast type
                 "condition": self.condition_combo.currentText(),
                 "quantity": self.quantity_spin.value(),
                 "price": self.price_spin.value(),
                 "dot": self.dot_input.text().strip(),
                 "status": self.status_combo.currentText(),
-                "bieznik": self.bieznik_spin.value() if self.condition_combo.currentText() == _("Używana") else None,
-                "location": self.location_input.text().strip(),
                 "notes": self.notes_edit.toPlainText().strip(),
-                "receive_date": self.receive_date_edit.date().toString("yyyy-MM-dd"),
-                "supplier": self.supplier_input.text().strip(),
-                "invoice_number": self.invoice_input.text().strip(),
-                "purchase_price": self.purchase_price_spin.value(),
-                "ean_code": self.ean_input.text().strip(),
-                "image_path": self.image_path,
-                "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
+            
+            # Dodatkowe dane, które można umieścić w polu notes
+            additional_info = [
+                f"Bieżnik: {self.bieznik_spin.value()} mm" if self.condition_combo.currentText() == _("Używana") else "",
+                f"Lokalizacja: {self.location_input.text().strip()}",
+                f"Data przyjęcia: {self.receive_date_edit.date().toString('yyyy-MM-dd')}",
+                f"Dostawca: {self.supplier_input.text().strip()}",
+                f"Faktura: {self.invoice_input.text().strip()}",
+                f"Cena zakupu: {self.purchase_price_spin.value()} zł",
+                f"EAN: {self.ean_input.text().strip()}"
+            ]
+            
+            # Dodaj dodatkowe informacje do pola notes
+            additional_notes = "\n".join([info for info in additional_info if info])
+            if additional_notes:
+                if tire_data["notes"]:
+                    tire_data["notes"] += "\n\n" + additional_notes
+                else:
+                    tire_data["notes"] = additional_notes
             
             cursor = self.conn.cursor()
             
@@ -370,7 +390,6 @@ class InventoryDialog(QDialog):
                     query = f"UPDATE inventory SET {', '.join(query_parts)} WHERE id = ?"
                     cursor.execute(query, params)
                     
-                    self.tire_id = self.tire_id  # Zachowaj to samo ID
                 else:
                     # Dodanie nowej opony
                     fields = ", ".join(tire_data.keys())
@@ -450,6 +469,7 @@ class InventoryDialog(QDialog):
         return self.tire_id
 
 
+    # Poprawka dla metody add_image
     def add_image(self):
         """Dodaje zdjęcie opony."""
         try:
@@ -463,7 +483,7 @@ class InventoryDialog(QDialog):
             
             if not file_path:
                 return
-                
+                    
             # Ustaw wybrane zdjęcie
             self.image_path = file_path
             self.set_image(file_path)
@@ -471,11 +491,13 @@ class InventoryDialog(QDialog):
             
         except Exception as e:
             logger.error(f"Błąd podczas dodawania zdjęcia: {e}")
+            # Poprawka: Używamy zwykłego tekstu bez próby tłumaczenia w bloku wyjątku
             NotificationManager.get_instance().show_notification(
                 f"Błąd podczas dodawania zdjęcia: {e}",
                 NotificationTypes.ERROR
             )
-    
+        
+    # Poprawka dla metody remove_image
     def remove_image(self):
         """Usuwa zdjęcie opony."""
         try:
@@ -486,6 +508,7 @@ class InventoryDialog(QDialog):
             
         except Exception as e:
             logger.error(f"Błąd podczas usuwania zdjęcia: {e}")
+            # Poprawka: Używamy zwykłego tekstu bez próby tłumaczenia w bloku wyjątku
             NotificationManager.get_instance().show_notification(
                 f"Błąd podczas usuwania zdjęcia: {e}",
                 NotificationTypes.ERROR
@@ -514,116 +537,5 @@ class InventoryDialog(QDialog):
     
     def accept(self):
         """Obsługuje zatwierdzenie dialogu i zapis danych."""
-        try:
-            # Walidacja danych
-            manufacturer = self.manufacturer_input.text().strip()
-            model = self.model_input.text().strip()
-            size = self.size_input.text().strip()
-            
-            if not manufacturer:
-                QMessageBox.warning(self, _("Brak danych"), _("Pole producenta jest wymagane."))
-                return
+        self.save_tire()  # Prosta delegacja do metody save_tire
                 
-            if not model:
-                QMessageBox.warning(self, _("Brak danych"), _("Pole modelu jest wymagane."))
-                return
-                
-            if not size:
-                QMessageBox.warning(self, _("Brak danych"), _("Pole rozmiaru jest wymagane."))
-                return
-            
-            # Pobierz pozostałe dane z formularza
-            tire_type = self.type_combo.currentText()
-            condition = self.condition_combo.currentText()
-            status = self.status_combo.currentText()
-            quantity = self.quantity_spin.value()
-            price = self.price_spin.value()
-            purchase_price = self.purchase_price_spin.value()
-            bieznik = self.bieznik_spin.value() if condition == _("Używana") else None
-            
-            dot = self.dot_input.text().strip()
-            notes = self.notes_edit.toPlainText().strip()
-            location = self.location_input.text().strip()
-            supplier = self.supplier_input.text().strip()
-            invoice_number = self.invoice_input.text().strip()
-            ean_code = self.ean_input.text().strip()
-            
-            # Data przyjęcia
-            receive_date = self.receive_date_edit.date().toString("yyyy-MM-dd")
-            
-            # Data aktualizacji
-            current_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            cursor = self.conn.cursor()
-            
-            if self.tire_id:  # Aktualizacja istniejącej opony
-                query = """
-                    UPDATE inventory SET
-                        manufacturer = ?,
-                        model = ?,
-                        size = ?,
-                        type = ?,
-                        condition = ?,
-                        status = ?,
-                        quantity = ?,
-                        price = ?,
-                        purchase_price = ?,
-                        bieznik = ?,
-                        dot = ?,
-                        notes = ?,
-                        location = ?,
-                        supplier = ?,
-                        invoice_number = ?,
-                        ean_code = ?,
-                        receive_date = ?,
-                        image_path = ?,
-                        last_updated = ?
-                    WHERE id = ?
-                """
-                
-                cursor.execute(
-                    query,
-                    (
-                        manufacturer, model, size, tire_type, condition, status,
-                        quantity, price, purchase_price, bieznik, dot, notes,
-                        location, supplier, invoice_number, ean_code, receive_date,
-                        self.image_path, current_date, self.tire_id
-                    )
-                )
-                
-            else:  # Dodanie nowej opony
-                query = """
-                    INSERT INTO inventory (
-                        manufacturer, model, size, type, condition, status,
-                        quantity, price, purchase_price, bieznik, dot, notes,
-                        location, supplier, invoice_number, ean_code, receive_date,
-                        image_path, last_updated
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """
-                
-                cursor.execute(
-                    query,
-                    (
-                        manufacturer, model, size, tire_type, condition, status,
-                        quantity, price, purchase_price, bieznik, dot, notes,
-                        location, supplier, invoice_number, ean_code, receive_date,
-                        self.image_path, current_date
-                    )
-                )
-                
-                # Pobierz ID nowo dodanej opony
-                self.tire_id = cursor.lastrowid
-            
-            # Zapisz zmiany w bazie danych
-            self.conn.commit()
-            
-            # Zamknij dialog z akceptacją
-            super().accept()
-            
-        except Exception as e:
-            logger.error(f"Błąd podczas zapisywania danych opony: {e}")
-            NotificationManager.get_instance().show_notification(
-                f"Błąd podczas zapisywania danych opony: {e}",
-                NotificationTypes.ERROR
-            )
-            

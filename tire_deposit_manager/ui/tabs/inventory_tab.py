@@ -1651,6 +1651,10 @@ class InventoryTab(QWidget):
         search_box_layout.setContentsMargins(10, 0, 10, 0)
         
         search_icon = QLabel("🔍")
+        search_icon.setStyleSheet("""
+            background-color: transparent; 
+            color: #adb5bd;
+        """)
         search_box_layout.addWidget(search_icon)
         
         self.new_tires_search_field = QLineEdit()
@@ -1764,6 +1768,10 @@ class InventoryTab(QWidget):
         search_box_layout.setContentsMargins(10, 0, 10, 0)
         
         search_icon = QLabel("🔍")
+        search_icon.setStyleSheet("""
+            background-color: transparent; 
+            color: #adb5bd;
+        """)
         search_box_layout.addWidget(search_icon)
         
         self.used_tires_search_field = QLineEdit()
@@ -1876,10 +1884,10 @@ class InventoryTab(QWidget):
         try:
             cursor = self.conn.cursor()
             
-            # Budowanie zapytania SQL
+            # Budowanie zapytania SQL używającego nazw kolumn z istniejącej bazy
             query = """
                 SELECT 
-                    id, manufacturer, model, size, type, 
+                    id, brand_model, size, season_type, 
                     quantity, price, dot, status
                 FROM 
                     inventory
@@ -1895,7 +1903,7 @@ class InventoryTab(QWidget):
                 params.append(self.current_status_filter)
                 
             if self.current_season_filter != _("Wszystkie"):
-                query += " AND type = ?"
+                query += " AND season_type = ?"  # Używamy season_type zamiast type
                 params.append(self.current_season_filter)
                 
             if self.current_size_filter != _("Wszystkie"):
@@ -1904,13 +1912,13 @@ class InventoryTab(QWidget):
                 
             if self.filter_text:
                 query += """
-                    AND (manufacturer LIKE ? OR model LIKE ? OR size LIKE ?)
+                    AND (brand_model LIKE ? OR size LIKE ?)
                 """
                 search_param = f"%{self.filter_text}%"
-                params.extend([search_param, search_param, search_param])
+                params.extend([search_param, search_param])
                 
             # Sortowanie
-            query += " ORDER BY manufacturer, model, size"
+            query += " ORDER BY brand_model, size"
             
             # Paginacja - najpierw pobierz całkowitą liczbę wierszy
             count_query = "SELECT COUNT(*) FROM (" + query + ")"
@@ -1950,11 +1958,17 @@ class InventoryTab(QWidget):
                 id_item.setData(Qt.UserRole, tire['id'])  # Zachowaj oryginalne ID
                 table.setItem(row_idx, 0, id_item)
                 
+                # Rozdziel brand_model na manufacturer i model
+                brand_model = tire['brand_model'] or ""
+                parts = brand_model.split(' ', 1)
+                manufacturer = parts[0] if parts else ""
+                model = parts[1] if len(parts) > 1 else ""
+                
                 # Pozostałe dane
-                table.setItem(row_idx, 1, QTableWidgetItem(tire['manufacturer']))
-                table.setItem(row_idx, 2, QTableWidgetItem(tire['model']))
+                table.setItem(row_idx, 1, QTableWidgetItem(manufacturer))
+                table.setItem(row_idx, 2, QTableWidgetItem(model))
                 table.setItem(row_idx, 3, QTableWidgetItem(tire['size']))
-                table.setItem(row_idx, 4, QTableWidgetItem(tire['type']))
+                table.setItem(row_idx, 4, QTableWidgetItem(tire['season_type']))  # Używamy season_type zamiast type
                 table.setItem(row_idx, 5, QTableWidgetItem(str(tire['quantity'])))
                 table.setItem(row_idx, 6, QTableWidgetItem(str(tire['price'])))
                 table.setItem(row_idx, 7, QTableWidgetItem(tire['dot'] or ""))
